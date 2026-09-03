@@ -22,7 +22,7 @@ jobs:
         run: |
           node --check app.js
           node --check backend.js
-          node --check fix2.js
+          node --check fix3.js
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:
