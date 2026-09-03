@@ -29,9 +29,11 @@ jobs:
           node --check os-hardening.js
           node --check os-integrations.js
           node --check os-qa.js
+          node --check os-production.js
           test -f manifest.webmanifest
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
+          test -f supabase/migrations/20260903_production_cost_hardening.sql
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
