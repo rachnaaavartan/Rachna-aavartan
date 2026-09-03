@@ -34,6 +34,7 @@ jobs:
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
           test -f supabase/migrations/20260903_production_cost_hardening.sql
+          test -f supabase/migrations/20260903_lock_vendor_payment_fields.sql
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
