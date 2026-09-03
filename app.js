@@ -1,1 +1,1 @@
-/* CLEAN_APP_SENTINEL */
+/* sentinel removed; restore immediately */
