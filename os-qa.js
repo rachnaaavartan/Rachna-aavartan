@@ -5,33 +5,32 @@
   const $ = (s, r = document) => r.querySelector(s);
   const esc = A.esc || (s => String(s ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])));
 
-  function inject() {
-    if (!A.state?.user || $('#clientPortalAction')) return !!$('#clientPortalAction');
-    const top = $('.topbar');
-    const enquiry = top?.querySelector('[data-route="inquiries"]');
-    if (!top || !enquiry) return false;
-    const portal = document.createElement('button');
-    portal.id = 'clientPortalAction';
-    portal.className = 'top-action';
-    portal.textContent = '◈ Client Portal';
-    portal.addEventListener('click', () => $('#clientPortalAction')?.click());
-    return false;
+  async function openClientPortal() {
+    const modal = $('#modal'), backdrop = $('#backdrop');
+    if (!modal || !backdrop || !A.state?.user) return;
+    const projects = A.state.projects || [];
+    if (!projects.length) {
+      modal.innerHTML = '<div class="modal-head"><div><div class="eyebrow">CLIENT PORTAL</div><h2>Client Portal</h2></div><button class="close-btn" id="cpClose">×</button></div><div class="modal-body"><div class="empty"><b>No events yet</b><span>Create an Event ID first.</span></div></div>';
+      backdrop.classList.add('show'); $('#cpClose').onclick = () => backdrop.classList.remove('show'); return;
+    }
+    modal.innerHTML = `<div class="modal-head"><div><div class="eyebrow">CLIENT PORTAL</div><h2>Share an event portal</h2></div><button class="close-btn" id="cpClose">×</button></div><div class="modal-body"><label class="field"><span>Event</span><select id="cpProject">${projects.map(p=>`<option value="${esc(p.id)}">${esc(p.event_code||'Event')} · ${esc(p.name)}</option>`).join('')}</select></label><div id="cpResult" class="notice">Create a secure portal link for the selected Event ID.</div></div><div class="modal-foot"><button class="btn" id="cpClose2">Close</button><button class="btn primary" id="cpCreate">Create portal</button></div>`;
+    backdrop.classList.add('show');
+    const close = () => backdrop.classList.remove('show');
+    $('#cpClose').onclick = close; $('#cpClose2').onclick = close;
+    $('#cpCreate').onclick = async () => {
+      const button = $('#cpCreate'); button.disabled = true; button.textContent = 'Creating…';
+      const { data, error } = await A.sb.rpc('create_client_portal', { p_project_id: $('#cpProject').value });
+      button.disabled = false; button.textContent = 'Create portal';
+      if (error) { $('#cpResult').innerHTML = `<div class="error-box">${esc(error.message)}</div>`; return; }
+      const url = `${location.origin}${location.pathname}?portal=${encodeURIComponent(data.token)}`;
+      $('#cpResult').innerHTML = `<div class="success-box"><b>Portal ready</b><p style="word-break:break-all">${esc(url)}</p><button class="btn tiny" id="cpCopy">Copy link</button> <a class="btn tiny" target="_blank" rel="noopener" href="${esc(url)}">Open</a></div>`;
+      $('#cpCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); $('#cpCopy').textContent = 'Copied'; } catch { window.prompt('Copy portal link', url); } };
+    };
   }
 
-  // Keep retrying because the main application initializes the session asynchronously.
-  let attempts = 0;
-  const timer = setInterval(() => {
-    attempts += 1;
-    if (window.osClientPortalInject) {
-      window.osClientPortalInject();
-      if ($('#clientPortalAction') || attempts >= 30) clearInterval(timer);
-    } else if (attempts >= 30) clearInterval(timer);
-  }, 500);
-
   async function showRequests() {
-    if (!A.state?.user) return;
     const modal = $('#modal'), backdrop = $('#backdrop');
-    if (!modal || !backdrop) return;
+    if (!modal || !backdrop || !A.state?.user) return;
     modal.innerHTML = '<div class="modal-head"><div><div class="eyebrow">CLIENT PORTAL</div><h2>Client Requests</h2></div><button class="close-btn" id="crClose">×</button></div><div class="modal-body"><div id="crBody">Loading requests…</div></div><div class="modal-foot"><button class="btn" id="crClose2">Close</button></div>';
     backdrop.classList.add('show');
     const close = () => backdrop.classList.remove('show');
@@ -40,40 +39,37 @@
     const body = $('#crBody');
     if (error) { body.innerHTML = `<div class="error-box">${esc(error.message)}</div>`; return; }
     if (!data?.length) { body.innerHTML = '<div class="empty"><b>No client requests</b><span>New requests sent from shared portals will appear here.</span></div>'; return; }
-    const projectName = id => A.state.projects.find(p => p.id === id);
     body.innerHTML = data.map(r => {
-      const p = projectName(r.project_id);
+      const p = A.state.projects.find(x => x.id === r.project_id);
       return `<div class="mini-row" style="align-items:flex-start"><div style="flex:1"><b>${esc(r.request_type || 'general')} · ${esc(p?.event_code || 'Event')}</b><small>${esc(p?.name || 'Event')} · ${esc(new Date(r.created_at).toLocaleString())}</small><p style="margin:6px 0 0">${esc(r.message)}</p></div><select class="cr-status" data-id="${r.id}">${['open','in_progress','done','closed'].map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}</select></div>`;
     }).join('');
     body.querySelectorAll('.cr-status').forEach(s => s.addEventListener('change', async () => {
+      const old = s.dataset.old || 'open';
       const { error: e } = await A.sb.from('portal_requests').update({ status: s.value, updated_at: new Date().toISOString() }).eq('id', s.dataset.id);
-      if (e) { s.value = 'open'; window.alert(e.message); }
+      if (e) { s.value = old; window.alert(e.message); } else s.dataset.old = s.value;
     }));
   }
 
-  // Bridge the existing portal injector without duplicating its implementation.
-  const previousReady = window.osClientPortalInject;
-  window.osClientPortalInject = () => {
-    if (typeof previousReady === 'function') previousReady();
-    const existing = $('#clientPortalAction');
-    if (existing) return true;
-    return false;
-  };
-
-  const addRequestsButton = () => {
-    if (!A.state?.user || $('#clientRequestsAction')) return;
+  function ensureButtons() {
+    if (!A.state?.user) return false;
     const top = $('.topbar');
-    const notification = top?.querySelector('[data-action="notifications"]');
-    if (!top || !notification) return;
-    const btn = document.createElement('button');
-    btn.id = 'clientRequestsAction';
-    btn.className = 'top-action';
-    btn.textContent = '◌ Client Requests';
-    btn.onclick = showRequests;
-    notification.after(btn);
-  };
-  const requestTimer = setInterval(() => {
-    addRequestsButton();
-    if ($('#clientRequestsAction') || attempts >= 30) clearInterval(requestTimer);
-  }, 500);
+    if (!top) return false;
+    const enquiry = top.querySelector('[data-route="inquiries"]');
+    if (enquiry && !$('#clientPortalAction')) {
+      const b = document.createElement('button');
+      b.id = 'clientPortalAction'; b.className = 'top-action'; b.textContent = '◈ Client Portal'; b.onclick = openClientPortal;
+      enquiry.after(b);
+    }
+    const notification = top.querySelector('[data-action="notifications"]');
+    if (notification && !$('#clientRequestsAction')) {
+      const b = document.createElement('button');
+      b.id = 'clientRequestsAction'; b.className = 'top-action'; b.textContent = '◌ Client Requests'; b.onclick = showRequests;
+      notification.after(b);
+    }
+    return !!$('#clientPortalAction') && !!$('#clientRequestsAction');
+  }
+
+  let attempts = 0;
+  const timer = setInterval(() => { attempts += 1; if (ensureButtons() || attempts >= 40) clearInterval(timer); }, 500);
+  window.addEventListener('focus', ensureButtons);
 })();
