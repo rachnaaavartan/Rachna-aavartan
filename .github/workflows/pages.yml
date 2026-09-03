@@ -20,8 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate JavaScript
         run: |
-          node --check app-new.js
-          node --check backend.js
+          node --check app.js
+          node --check backend-clean.js
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
