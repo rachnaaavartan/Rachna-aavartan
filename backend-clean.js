@@ -246,12 +246,17 @@
   async function updateVendor(id, row) { return update('vendors', id, row); }
 
   async function addVendorBooking(x) {
-    const quoted = n(x.quoted_cost), advance = n(x.advance_paid), finalPaid = n(x.final_paid);
+    const quoted = n(x.quoted_cost);
+    const advance = n(x.advance_paid);
+    const finalPaid = n(x.final_paid);
+    if (advance !== 0 || finalPaid !== 0) {
+      throw new Error('Vendor payments must be recorded separately after the vendor job is created.');
+    }
     const out = await q(sb.from('vendor_bookings').insert({
       project_id: x.project_id, function_id: x.function_id || null, vendor_id: x.vendor_id,
       category: x.category || null, requirement: x.requirement || null, quantity: n(x.quantity, 1),
-      client_price: n(x.client_price), quoted_cost: quoted, advance_paid: advance, final_paid: finalPaid,
-      payable: Math.max(0, quoted - advance - finalPaid), status: x.status || 'reserved', notes: x.notes || null
+      client_price: n(x.client_price), quoted_cost: quoted, advance_paid: 0, final_paid: 0,
+      payable: Math.max(0, quoted), status: x.status || 'reserved', notes: x.notes || null
     }).select().single());
     await refresh();
     await recalc(x.project_id);
@@ -259,6 +264,7 @@
   }
 
   async function updateVendorBooking(id, row, projectId) {
+    if ('advance_paid' in row || 'final_paid' in row) throw new Error('Vendor payments must be recorded through the vendor payment action.');
     await q(sb.from('vendor_bookings').update(row).eq('id', id));
     if (projectId) await recalc(projectId); else await refresh();
   }
