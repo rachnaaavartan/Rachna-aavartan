@@ -1,10 +1,10 @@
 # Rachna OS
 
 Production architecture:
-- `index.html` — app shell
+- `index.html` — application shell
 - `app.js` — single frontend application
-- `backend-clean.js` — single frontend API/data layer
+- `backend-clean.js` — single data/API layer
 - `styles.css` — visual system
-- `supabase/schema.sql` — production schema source
+- `supabase/schema.sql` — database source
 
-Legacy patch files are intentionally not part of production.
+Legacy patch files are not part of production.
