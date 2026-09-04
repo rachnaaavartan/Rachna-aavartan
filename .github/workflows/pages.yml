@@ -24,17 +24,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate production files
         run: |
-          for f in app.js backend-clean.js os-data-v2.js os-performance.js os-hardening.js os-integrations.js os-qa.js os-production.js os-ux.js os-crew-v2.js os-finance-v2.js os-operations-v3.js os-documents-v2.js os-marketing-v2.js os-workflow-v3.js os-complete-v4.js os-complete-v4-fix.js os-resource-planner-v1.js os-dayone-v2.js os-stability-v1.js os-nepali-calendar-v1.js os-datecheck-v2.js; do node --check "$f"; done
+          for f in app.js backend-clean.js os-data-v2.js os-performance.js os-hardening.js os-integrations.js os-qa.js os-production.js os-ux.js os-crew-v2.js os-finance-v2.js os-operations-v3.js os-documents-v2.js os-marketing-v2.js os-workflow-v3.js os-complete-v4.js os-complete-v4-fix.js os-resource-planner-v1.js os-dayone-v2.js os-stability-v1.js os-nepali-calendar-v1.js os-datecheck-v2.js os-company-units-v1.js os-global-bs-v1.js; do node --check "$f"; done
           test -f index.html
           test -f styles.css
           test -f os-complete-v4.css
           test -f os-dayone-v1.css
           test -f manifest.webmanifest
           test -f sw.js
-          test -f os-resource-planner-v1.js
-          test -f os-dayone-v2.js
-          test -f os-stability-v1.js
-          test -f os-nepali-calendar-v1.js
+          test -f os-company-units-v1.js
+          test -f os-global-bs-v1.js
           test -f os-datecheck-v2.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
           test -f supabase/migrations/20260903_production_cost_hardening.sql
