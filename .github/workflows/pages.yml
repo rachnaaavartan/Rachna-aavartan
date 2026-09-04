@@ -38,6 +38,7 @@ jobs:
           node --check os-crm-v2.js
           node --check os-documents-v2.js
           node --check os-marketing-v2.js
+          node --check os-booking-v2.js
           test -f manifest.webmanifest
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
