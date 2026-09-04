@@ -43,6 +43,10 @@ begin
 end;
 $$;
 
+-- Trigger-only function: never expose it as an RPC.
+revoke execute on function public.enforce_vendor_booking_conflicts() from public, anon, authenticated;
+grant execute on function public.enforce_vendor_booking_conflicts() to postgres;
+
 drop trigger if exists trg_vendor_booking_conflicts on public.vendor_bookings;
 create trigger trg_vendor_booking_conflicts
 before insert or update on public.vendor_bookings
@@ -57,6 +61,7 @@ create index if not exists idx_portal_requests_organization on public.portal_req
 create index if not exists idx_production_jobs_assigned_to on public.production_jobs(assigned_to);
 create index if not exists idx_production_jobs_function on public.production_jobs(function_id);
 create index if not exists idx_production_jobs_organization on public.production_jobs(organization_id);
+create index if not exists idx_reminders_function on public.reminders(function_id);
 
 -- Remove exact duplicate indexes while retaining the canonical idx_* copies.
 drop index if exists public.event_files_project_idx;
