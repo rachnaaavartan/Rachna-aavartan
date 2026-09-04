@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -22,20 +22,6 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Normalize to one runtime
-        run: node .github/repair-unified-runtime.cjs
-      - name: Commit normalized production tree
-        run: |
-          set -e
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m 'Unify runtime, close modals reliably, and standardize BS UI'
-            git push origin HEAD:main
-          fi
       - name: Validate production runtime
         run: |
           set -e
@@ -61,6 +47,7 @@ jobs:
           grep -q 'data-bs-day' app.js
           grep -Fq "ui.page='settings';ui.tab='overview'" app.js
           grep -Fq "ui.query=stage||''" app.js
+          grep -Fq "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};" app.js
           node <<'NODE'
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
