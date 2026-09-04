@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260904.40">
-<link rel="stylesheet" href="styles.css?v=20260904.40">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.1">
+<link rel="stylesheet" href="styles.css?v=20260905.1">
 </head>
 <body>
 <div class="app">
@@ -20,11 +20,10 @@
   <main class="main">
     <header class="topbar">
       <div class="crumb" id="crumb">Home</div>
-      <button class="top-action" data-rachna-date-check>◫ Date Check</button>
-      <button class="top-action primary" data-route="inquiries">✉ Enquiries</button>
-      <button class="top-action" data-action="notifications">◌ Notifications</button>
-      <button class="quick" data-action="quick-action">⚡ Quick action</button>
-      <div class="top-actions"><div class="pill">NPR · Nepal</div><button class="icon" id="refresh" title="Refresh">↻</button><button class="icon" id="authBtn" title="Account">R</button></div>
+      <button type="button" class="top-action" data-rachna-date-check>◫ Date Check</button>
+      <button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button>
+      <button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button>
+      <div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" title="Account">R</button></div>
     </header>
     <section class="page" id="page"></section>
   </main>
@@ -32,10 +31,11 @@
 <div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script defer src="backend-clean.js?v=20260904.40"></script>
-<script defer src="app.js?v=20260904.40"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@remotemerge/nepali-date-converter@1/dist/ndc-browser.js"></script>
+<script defer src="backend-clean.js?v=20260905.1"></script>
+<script defer src="app.js?v=20260905.1"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260904.40').catch(()=>{});});
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.1').catch(()=>{});});
 </script>
 </body>
 </html>
