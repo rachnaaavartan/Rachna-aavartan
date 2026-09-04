@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.2">
-<link rel="stylesheet" href="styles.css?v=20260905.2">
-<link rel="stylesheet" href="ui.css?v=20260905.2">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.3">
+<link rel="stylesheet" href="styles.css?v=20260905.3">
+<link rel="stylesheet" href="ui.css?v=20260905.3">
 </head>
 <body>
 <div class="app">
@@ -32,11 +32,22 @@
 <div class="toast" id="toast"></div>
 <div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/@remotemerge/nepali-date-converter@1/dist/ndc-browser.js"></script>
-<script defer src="backend-clean.js?v=20260905.2"></script>
-<script defer src="app.js?v=20260905.2"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js"></script>
+<script defer src="backend-clean.js?v=20260905.3"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.2').catch(()=>{});});
+window.addEventListener('DOMContentLoaded',()=>{
+  if(window.NepaliDate&&!window.DateConverter){
+    window.DateConverter=class{
+      constructor(value){this.value=value}
+      toAd(){const d=new window.NepaliDate(this.value).getAD();return{year:d.year,month:d.month,date:d.date}}
+      toBs(){const d=new window.NepaliDate(this.value).getBS();return{year:d.year,month:d.month,date:d.date}}
+    };
+  }
+});
+</script>
+<script defer src="app.js?v=20260905.3"></script>
+<script>
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.3').catch(()=>{});});
 </script>
 </body>
 </html>
