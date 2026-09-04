@@ -26,6 +26,7 @@ jobs:
         run: |
           node --check app.js
           node --check backend-clean.js
+          node --check os-data-v2.js
           node --check os-hardening.js
           node --check os-integrations.js
           node --check os-qa.js
@@ -39,6 +40,9 @@ jobs:
           node --check os-documents-v2.js
           node --check os-marketing-v2.js
           node --check os-booking-v2.js
+          node --check os-control-v3.js
+          test -f index.html
+          test -f styles.css
           test -f manifest.webmanifest
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
