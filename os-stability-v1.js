@@ -8,11 +8,12 @@ const safeWrite=s=>{try{localStorage.setItem(KEY,JSON.stringify(s))}catch(_){}};
 let ui=safeRead();
 let saveTimer=0;
 const persist=patch=>{ui={...ui,...patch,t:Date.now()};clearTimeout(saveTimer);saveTimer=setTimeout(()=>safeWrite(ui),80)};
-const target=e=>e.target?.closest?.('[data-route],[data-action],[data-project-tab],[data-cos-tab],[data-cos-open],[data-cos-filter],[data-do-tab]');
+const target=e=>e.target?.closest?.('[data-route],[data-action],[data-project-tab],[data-cos-tab],[data-cos-open],[data-cos-filter],[data-do-tab],[data-cos]');
 
 document.addEventListener('click',e=>{
   const t=target(e); if(!t)return;
   const d=t.dataset||{};
+  if(d.cos==='refresh'||d.action==='refresh'){A.__manualRefreshRequested=true;return;}
   if(d.cosTab){persist({surface:'company',companyTab:d.cosTab});return;}
   if(d.doTab){persist({surface:'company',companyTab:d.doTab});return;}
   if(d.cosOpen){persist({surface:'company',companyTab:'command'});return;}
@@ -46,6 +47,7 @@ const mutationHintMap={
 };
 let hint=null;
 A.refresh=async function(options={}){
+  if(A.__manualRefreshRequested){A.__manualRefreshRequested=false;return baseRefresh({});}
   if(options&&options.tables)return baseRefresh(options);
   if(options&&options.core)return baseRefresh(options);
   if(hint&&hint.length)return baseRefresh({tables:[...new Set(hint)]});
