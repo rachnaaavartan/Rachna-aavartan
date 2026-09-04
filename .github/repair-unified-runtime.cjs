@@ -17,7 +17,6 @@ function unwrapIife(src) {
 
 let app = fs.readFileSync(appPath, 'utf8');
 
-// One-time merge is only needed on legacy trees. Once merged, this script is idempotent.
 if (fs.existsSync(backendPath)) {
   const backend = unwrapIife(fs.readFileSync(backendPath, 'utf8'));
   const appBody = unwrapIife(app);
@@ -25,39 +24,51 @@ if (fs.existsSync(backendPath)) {
   fs.unlinkSync(backendPath);
 }
 
-// Fix pipeline shortcuts so the displayed stage is actually applied.
 app = app.replace(
   /'filter-inquiry':\(\{stage\}\)=>\{ui\.page='inquiries';ui\.query='';render\(\)\},/,
   "'filter-inquiry':({stage})=>{ui.page='inquiries';ui.query=stage||'';render()},"
 );
 
-// Make modal close independent from the global click delegate.
+// Repair either the original one-line close function or the malformed intermediate form.
 app = app.replace(
-  /const closeModal=\(\)=>[^;]+;/,
+  /const closeModal=\(\)=>\{const b=\$\('#backdrop'\);if\(b\)b\.classList\.remove\('show'\);\};(?:if\(b\)b\.classList\.remove\('show'\);\};)?/,
   "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};"
 );
+app = app.replace(
+  /const closeModal=\(\)=>\$\('#backdrop'\)\?\.classList\.remove\('show'\);/,
+  "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};"
+);
+
 if (!app.includes("m.querySelectorAll('[data-action=\"close\"]').forEach")) {
   app = app.replace(
-    /;b\.classList\.add\('show'\);bindPickers\(m\)\};/,
-    ";b.classList.add('show');bindPickers(m);m.querySelectorAll('[data-action=\"close\"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};"
+    /b\.classList\.add\('show'\);bindPickers\(m\)\};/,
+    "b.classList.add('show');bindPickers(m);m.querySelectorAll('[data-action=\"close\"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};"
   );
 }
 
-// Route Account through the same dispatcher as every other visible action.
-app = app.replace(
-  /const HANDLERS=\{/,
-  "const HANDLERS={\n account:()=>{if(state.user){ui.project=null;ui.page='settings';ui.tab='overview';ui.query='';closeModal();render()}else authModal()},"
-);
-app = app.replace(
-  /function bindGlobal\(\)\{document\.addEventListener\('click',e=>\{/,
-  "function bindGlobal(){document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()},{capture:true});document.addEventListener('click',e=>{"
-);
-// Remove duplicate direct top-bar listeners now handled by the dispatcher.
-app = app.replace(/;\$\('#refresh'\)\?\.addEventListener\('click',[\s\S]*?;const dateBtn=\$\('\[data-rachna-date-check\]'\);if\(dateBtn\)dateBtn\.addEventListener\('click',[\s\S]*?dateCheckModal\(\)\);/,
-  ';');
+if (!app.includes("const HANDLERS={\n account:")) {
+  app = app.replace(
+    /const HANDLERS=\{/,
+    "const HANDLERS={\n account:()=>{if(state.user){ui.project=null;ui.page='settings';ui.tab='overview';ui.query='';closeModal();render()}else authModal()},"
+  );
+}
+
+if (!app.includes("e.key==='Escape'")) {
+  app = app.replace(
+    /function bindGlobal\(\)\{document\.addEventListener\('click',e=>\{/,
+    "function bindGlobal(){document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()},{capture:true});document.addEventListener('click',e=>{"
+  );
+}
+
+// Remove duplicate direct top-bar listeners. The action dispatcher owns these controls.
+app = app.replace(/;\$\('#refresh'\)\?\.addEventListener\('click',\(\)=>handleAction\(\{dataset:\{action:'refresh'\}\}\)\);/, ';');
+app = app.replace(/;\$\('#authBtn'\)\?\.addEventListener\('click',[\s\S]*?\);(?=const dateBtn)/, ';');
+app = app.replace(/const dateBtn=\$\('\[data-rachna-date-check\]'\);if\(dateBtn\)dateBtn\.addEventListener\('click',[\s\S]*?dateCheckModal\(\)\);/, '');
 
 if (!app.includes("const HANDLERS={\n account:")) throw new Error('Account handler missing after normalization');
 if (!app.includes("ui.query=stage||''")) throw new Error('Inquiry filter fix missing after normalization');
+if (!app.includes("const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};")) throw new Error('Close modal function missing after normalization');
+if (app.includes("if(b)b.classList.remove('show');};if(b)b.classList.remove('show');};")) throw new Error('Malformed duplicate close modal function remains');
 
 fs.writeFileSync(appPath, app);
 
@@ -75,12 +86,12 @@ index = index.replace(/\n<script src=""><\/script>/g, '');
 index = index.replace(/data-rachna-date-check/g, 'data-action="date-check"');
 if (!index.includes('data-action="refresh"')) index = index.replace('id="refresh" title="Refresh"', 'id="refresh" data-action="refresh" title="Refresh"');
 if (!index.includes('data-action="account"')) index = index.replace('id="authBtn" title="Account"', 'id="authBtn" data-action="account" title="Account"');
-const version = '20260905.7';
+const version = '20260905.8';
 index = index.replace(/\?v=[0-9.]+/g, '?v=' + version);
 fs.writeFileSync(indexPath, index);
 
 let sw = fs.readFileSync(swPath, 'utf8');
-sw = sw.replace(/const CACHE='[^']+'/, "const CACHE='rachna-os-v20260905-7'");
+sw = sw.replace(/const CACHE='[^']+'/, "const CACHE='rachna-os-v20260905-8'");
 sw = sw.replace(/,?'\.\/ui\.css\?v=[^']+'/g, '').replace(/,?'\.\/backend-clean\.js\?v=[^']+'/g, '');
 sw = sw.replace(/\?v=[0-9.]+/g, '?v=' + version);
 fs.writeFileSync(swPath, sw);
