@@ -45,15 +45,20 @@ jobs:
           grep -q 'data-bs-year' app.js
           grep -q 'data-bs-month' app.js
           grep -q 'data-bs-day' app.js
+          grep -q 'RachnaDateConverter' index.html
           grep -Fq "ui.page='settings';ui.tab='overview'" app.js
           grep -Fq "ui.query=stage||''" app.js
-          grep -Fq "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};" app.js
+          grep -Fq 'const closeModal' app.js
+          grep -Fq 'classList.remove' app.js
           node <<'NODE'
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
+          const html=fs.readFileSync('index.html','utf8');
           const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);
           const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);
           if(!m||!r) throw new Error('Handler or route registry missing');
+          if(!html.includes('new NP(year, month - 1, date)')) throw new Error('Strict BS constructor missing');
+          if(!html.includes('d.getYear() !== year')) throw new Error('BS day validation missing');
           const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
           const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
           if(app.includes("HANDLERS['sign-in-panel']")) handlers.add('sign-in-panel');
