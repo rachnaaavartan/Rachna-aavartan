@@ -1,5 +1,5 @@
-const CACHE='rachna-os-v1';
-const CORE=['./','./index.html','./styles.css','./backend-clean.js','./app.js','./os-hardening.js','./os-integrations.js','./manifest.webmanifest'];
+const CACHE='rachna-os-v20260904';
+const CORE=['./','./index.html?v=20260904','./styles.css?v=20260904','./backend-clean.js?v=20260904','./os-data-v2.js?v=20260904','./app.js?v=20260904','./os-hardening.js?v=20260904','./os-integrations.js?v=20260904','./os-qa.js?v=20260904','./os-production.js?v=20260904','./os-ux.js?v=20260904','./os-crew-v2.js?v=20260904','./os-finance-v2.js?v=20260904','./os-operations-v2.js?v=20260904','./os-crm-v2.js?v=20260904','./os-documents-v2.js?v=20260904','./os-marketing-v2.js?v=20260904','./os-booking-v2.js?v=20260904','./os-control-v3.js?v=20260904','./manifest.webmanifest?v=20260904'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()))});
-self.addEventListener('activate',event=>{event.waitUntil(self.clients.claim())});
-self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return r}).catch(()=>caches.match(event.request).then(r=>r||caches.match('./index.html'))))});
+self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
+self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(event.request,copy)).catch(()=>{});return r}).catch(()=>caches.match(event.request).then(r=>r||caches.match('./index.html'))))});
