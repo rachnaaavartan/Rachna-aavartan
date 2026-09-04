@@ -49,16 +49,16 @@ jobs:
           const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);
           const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);
           if(!m||!r) throw new Error('Handler or route registry missing');
-          const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]);
+          const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
           const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
           if(app.includes("HANDLERS['sign-in-panel']")) handlers.add('sign-in-panel');
           const missing=[...new Set(actions)].filter(x=>!handlers.has(x));
           if(missing.length) throw new Error('Unwired actions: '+missing.join(', '));
-          const routes=[...app.matchAll(/data-route=["']([^"']+)["']/g)].map(x=>x[1]);
+          const routes=[...app.matchAll(/data-route=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
           const routeKeys=new Set([...r[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
           const badRoutes=[...new Set(routes)].filter(x=>!routeKeys.has(x));
           if(badRoutes.length) throw new Error('Unwired routes: '+badRoutes.join(', '));
-          console.log(`Verified ${new Set(actions).size} actions and ${new Set(routes).size} routes.`);
+          console.log(`Verified ${new Set(actions).size} literal actions and ${new Set(routes).size} literal routes.`);
           NODE
           curl -fsSL -o /dev/null https://cdn.jsdelivr.net/npm/@remotemerge/nepali-date-converter@1/dist/ndc-browser.js
       - name: Configure GitHub Pages
