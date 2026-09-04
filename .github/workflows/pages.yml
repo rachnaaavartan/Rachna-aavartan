@@ -37,6 +37,8 @@ jobs:
           node --check os-crew-v2.js
           node --check os-finance-v2.js
           node --check os-operations-v2.js
+          node --check os-operations-v3.js
+          node --check os-bs-date.js
           node --check os-crm-v2.js
           node --check os-documents-v2.js
           node --check os-marketing-v2.js
