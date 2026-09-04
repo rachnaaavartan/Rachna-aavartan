@@ -33,6 +33,7 @@ jobs:
           node --check os-ux.js
           node --check os-crew.js
           node --check os-crew-v2.js
+          node --check os-finance-v2.js
           test -f manifest.webmanifest
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
