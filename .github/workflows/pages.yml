@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,6 +22,37 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Normalize unified runtime source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.js')
+          s = p.read_text()
+          replacements = {
+            "const booked=p=>p?.status==='booked'||Number(p?.customer_advance||0)>=Number(p?.quoted_total||0)*.3&&Number(p?.quoted_total||0)>0;": "const booked=p=>p?.status==='booked';",
+            "const dateLabel=f=>`${f?.event_date_bs||'Date TBC'}${f?.event_date?' · '+f.event_date:''}`;": "const dateLabel=f=>`${f?.event_date_bs||'Date TBC'}`;",
+            "<small>${esc(f.event_date||'')}</small>": "",
+            "BS first, AD alongside it.": "BS calendar",
+            "Confirmed after advance": "Manual booking status",
+            "30% advance gate": "Manual booking status",
+            "30% advance is the booking gate.": "Booking status is manual."
+          }
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+          node --check app.js
+          if git diff --quiet -- app.js; then
+            echo 'Runtime source already normalized.'
+          else
+            git config user.name 'rachnaaavartan'
+            git config user.email 'rachna.aavartan@gmail.com'
+            git add app.js
+            git commit -m 'Normalize booking status and BS-only dates'
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          fi
       - name: Validate production runtime
         run: |
           node --check app.js
@@ -31,9 +62,12 @@ jobs:
           test -f sw.js
           test -f manifest.webmanifest
           test -f supabase/schema.sql
+          ! find . -maxdepth 1 -type f -name 'os-*' -print -quit | grep -q .
           ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' index.html
           ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' sw.js
-          ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' .github/workflows/pages.yml
+          ! grep -E '30% advance gate|30% advance is the booking gate|Confirmed after advance' app.js
+          grep -q "const booked=p=>p?.status==='booked';" app.js
+          grep -q "const dateLabel=f=>.*event_date_bs" app.js
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
