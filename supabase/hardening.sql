@@ -23,15 +23,15 @@ grant execute on function public.check_event_date_conflicts(date,uuid) to authen
 
 create or replace function public.project_financial_snapshot(p_project_id uuid)
 returns jsonb language plpgsql security definer set search_path=public as $$
-declare v_org uuid; v_total numeric:=0; v_cost numeric:=0; v_paid numeric:=0; v_out numeric:=0; v_balance numeric:=0; v_profit numeric:=0;
+declare v_org uuid; v_total numeric:=0; v_cost numeric:=0; v_paid numeric:=0; v_out numeric:=0; v_balance numeric:=0; v_profit numeric:=0; v_status text;
 begin
   v_org:=public.my_org_id(); if v_org is null then raise exception 'No workspace'; end if;
   if not exists(select 1 from public.projects where id=p_project_id and organization_id=v_org) then raise exception 'Project not found'; end if;
   perform public.refresh_project_financials(p_project_id);
-  select quoted_total,internal_cost,customer_advance into v_total,v_cost,v_paid from public.projects where id=p_project_id and organization_id=v_org;
+  select quoted_total,internal_cost,customer_advance,status into v_total,v_cost,v_paid,v_status from public.projects where id=p_project_id and organization_id=v_org;
   select coalesce(sum(amount),0) into v_out from public.payments where project_id=p_project_id and direction='out';
   v_balance:=greatest(v_total-v_paid,0); v_profit:=v_total-v_cost;
-  return jsonb_build_object('quoted_total',v_total,'internal_cost',v_cost,'customer_received',v_paid,'customer_balance',v_balance,'cash_out',v_out,'estimated_profit',v_profit,'margin_pct',case when v_total>0 then round((v_profit/v_total)*100,2) else 0 end,'booked',v_paid>=v_total*0.30 and v_total>0);
+  return jsonb_build_object('quoted_total',v_total,'internal_cost',v_cost,'customer_received',v_paid,'customer_balance',v_balance,'cash_out',v_out,'estimated_profit',v_profit,'margin_pct',case when v_total>0 then round((v_profit/v_total)*100,2) else 0 end,'booked',v_status='booked','status',v_status);
 end; $$;
 revoke all on function public.project_financial_snapshot(uuid) from public;
 grant execute on function public.project_financial_snapshot(uuid) to authenticated;
