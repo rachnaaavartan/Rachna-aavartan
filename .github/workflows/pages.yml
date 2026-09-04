@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate production files
         run: |
-          for f in app.js backend-clean.js os-data-v2.js os-performance.js os-hardening.js os-integrations.js os-qa.js os-production.js os-ux.js os-crew-v2.js os-finance-v2.js os-operations-v2.js os-crm-v2.js os-documents-v2.js os-marketing-v2.js os-booking-v2.js os-control-v3.js os-workflow-v3.js os-operations-v3.js os-bs-date.js os-complete-v4.js os-complete-v4-fix.js os-resource-planner-v1.js os-dayone-v1.js; do node --check "$f"; done
+          for f in app.js backend-clean.js os-data-v2.js os-performance.js os-hardening.js os-integrations.js os-qa.js os-production.js os-ux.js os-crew-v2.js os-finance-v2.js os-operations-v2.js os-crm-v2.js os-documents-v2.js os-marketing-v2.js os-booking-v2.js os-control-v3.js os-workflow-v3.js os-operations-v3.js os-bs-date.js os-complete-v4.js os-complete-v4-fix.js os-resource-planner-v1.js os-dayone-v2.js; do node --check "$f"; done
           test -f index.html
           test -f styles.css
           test -f os-complete-v4.css
@@ -32,7 +32,7 @@ jobs:
           test -f manifest.webmanifest
           test -f sw.js
           test -f os-resource-planner-v1.js
-          test -f os-dayone-v1.js
+          test -f os-dayone-v2.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
           test -f supabase/migrations/20260903_production_cost_hardening.sql
           test -f supabase/migrations/20260903_lock_vendor_payment_fields.sql
