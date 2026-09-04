@@ -60,7 +60,7 @@ jobs:
           if(badRoutes.length) throw new Error('Unwired routes: '+badRoutes.join(', '));
           console.log(`Verified ${new Set(actions).size} literal actions and ${new Set(routes).size} literal routes.`);
           NODE
-          curl -fsSL -o /dev/null https://cdn.jsdelivr.net/npm/@remotemerge/nepali-date-converter@1/dist/ndc-browser.js
+          curl -fsSL -o /dev/null https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
