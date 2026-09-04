@@ -37,12 +37,12 @@ jobs:
           ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' index.html
           ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' sw.js
           ! grep -E '30% advance gate|30% advance is the booking gate|Confirmed after advance' app.js
-          ! grep -E 'type=["'"']date["'"']' app.js index.html
-          grep -q "const booked=p=>p?.status==='booked';" app.js
-          grep -q "event_date_bs" app.js
-          grep -q "data-bs-year" app.js
-          grep -q "data-bs-month" app.js
-          grep -q "data-bs-day" app.js
+          ! grep -F 'type="date"' app.js index.html
+          grep -Fq "const booked=p=>p?.status==='booked';" app.js
+          grep -q 'event_date_bs' app.js
+          grep -q 'data-bs-year' app.js
+          grep -q 'data-bs-month' app.js
+          grep -q 'data-bs-day' app.js
           node <<'NODE'
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
