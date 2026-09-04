@@ -20,7 +20,38 @@ function actions(){const root=$('#cosRoot')||document;$$('button[data-cos-conver
 $$('button[data-cos-open-event]',root).forEach(b=>{const c=b.parentElement;if(!c||c.querySelector('[data-do-edit-booking]'))return;const id=b.dataset.cosOpenEvent;c.classList.add('dayone-action-cell');c.insertAdjacentHTML('beforeend',`<button class="cos-btn tiny dayone-edit" data-do-edit-booking="${escAttr(id)}">Edit</button><button class="cos-btn tiny dayone-danger" data-do-del-booking="${escAttr(id)}">Delete</button>`)})}
 const companyNav=[['command','Command Center','◈'],['crm','CRM & Sales','✉'],['events','Events','▦'],['vendors','Vendors','◉'],['crew','Crew','✣'],['finance','Finance','₨'],['documents','Documents','□'],['marketing','Ads & Marketing','◇'],['settings','Settings','⚙']];
 function sidebar(){const root=$('#cosRoot'),n=$('#nav');if(!root||!n)return;const active=root.querySelector('.cos-nav-item.active')?.dataset.cosTab||'command';const html=`<div class="nav-group company-nav-group"><div class="nav-label">Company OS</div>${companyNav.map(x=>`<button class="nav-item ${active===x[0]?'active':''} dayone-company-nav" data-do-tab="${x[0]}"><span class="nav-ico">${x[2]}</span><span>${x[1]}</span></button>`).join('')}</div>`;if(n.dataset.companyNav!==html){n.innerHTML=html;n.dataset.companyNav=html}}
-function sync(){actions();sidebar()}
+
+// Booking status is manual. Customer advances update financials/receipts only.
+async function recordAdvanceManual(projectId,amount,method,reference){
+  const value=Number(amount||0);if(!(value>0))throw Error('Enter a valid advance');
+  const {data,error}=await A.sb.rpc('apply_customer_advance',{p_project_id:projectId,p_amount:value,p_method:method||null,p_reference:reference||null});
+  if(error)throw error;
+  await A.refresh();
+  try{
+    const {data:payments,error:pe}=await A.sb.from('payments').select('*').eq('project_id',projectId).eq('direction','in').order('created_at',{ascending:false}).limit(1);
+    if(pe)throw pe;
+    const payment=payments?.[0];
+    if(payment){
+      const {data:existing,error:ee}=await A.sb.from('documents').select('id').eq('project_id',projectId).eq('document_type','receipt').eq('payment_id',payment.id).limit(1).maybeSingle();
+      if(ee)throw ee;
+      if(!existing){
+        const year=new Date().getFullYear();
+        const prefix=`RCT-${year}-`;
+        const {data:last,error:le}=await A.sb.from('documents').select('document_number').eq('document_type','receipt').like('document_number',`${prefix}%`).order('document_number',{ascending:false}).limit(1);
+        if(le)throw le;
+        const seq=Number.parseInt(String(last?.[0]?.document_number||'').split('-').pop()||'0',10)+1;
+        const number=`${prefix}${String(Number.isFinite(seq)?seq:1).padStart(4,'0')}`;
+        const {data:doc,error:de}=await A.sb.from('documents').insert({organization_id:A.state.profile?.organization_id,project_id:projectId,quotation_id:null,payment_id:payment.id,document_type:'receipt',document_number:number,issue_date:new Date().toISOString().slice(0,10),amount:Number(payment.amount||value),status:'issued',notes:'Customer advance receipt linked to the Event ID.'}).select().single();
+        if(de)throw de;
+        A.state.documents=A.state.documents||[];A.state.documents.unshift(doc);
+      }
+    }
+  }catch(e){toast(`Advance recorded, but receipt link failed: ${e.message||e}`,true)}
+  return data;
+}
+A.recordAdvance=recordAdvanceManual;
+function syncManualBookingStep(){const page=$('#page');if(!page||!A.state.user)return;const eventHead=$('.event-head',page);if(!eventHead)return;const text=eventHead.querySelector('h1')?.textContent?.trim()||'';const p=(A.state.projects||[]).find(x=>String(x.event_code||'')===text);const step=$$('.workflow-step',page)[2];if(!p||!step)return;const em=step.querySelector('em');if(em)em.textContent=String(p.status||'planning').replace(/_/g,' ')}
+function sync(){actions();sidebar();syncManualBookingStep()}
 document.addEventListener('click',e=>{const t=e.target.closest?.('[data-do-edit-inq],[data-do-del-inq],[data-do-edit-booking],[data-do-del-booking],[data-do-save-inq],[data-do-save-booking],[data-do-close],[data-do-tab]');if(!t)return;if(t.dataset.doTab){e.preventDefault();const x=$(`#cosRoot .cos-nav-item[data-cos-tab="${CSS.escape(t.dataset.doTab)}"]`);x?.click();return}e.preventDefault();if(t.dataset.doEditInq)inquiryEdit(t.dataset.doEditInq);else if(t.dataset.doDelInq)delInquiry(t.dataset.doDelInq).catch(x=>toast(x.message,true));else if(t.dataset.doEditBooking)bookingEdit(t.dataset.doEditBooking);else if(t.dataset.doDelBooking)delBooking(t.dataset.doDelBooking).catch(x=>toast(x.message,true));else if(t.dataset.doSaveInq)saveInquiry(t.dataset.doSaveInq).catch(x=>toast(x.message,true));else if(t.dataset.doSaveBooking)saveBooking(t.dataset.doSaveBooking).catch(x=>toast(x.message,true));else if(t.dataset.doClose)close()},true);
 const mo=new MutationObserver(()=>{if(window.__doLock)return;window.__doLock=true;requestAnimationFrame(()=>{window.__doLock=false;sync()})});
 mo.observe(document.body,{subtree:true,childList:true});
