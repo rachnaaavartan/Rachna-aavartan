@@ -22,26 +22,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate production files
+      - name: Validate production runtime
         run: |
-          for f in app.js backend-clean.js os-data-v2.js os-performance.js os-hardening.js os-integrations.js os-qa.js os-production.js os-ux.js os-crew-v2.js os-finance-v2.js os-operations-v3.js os-documents-v2.js os-marketing-v2.js os-workflow-v3.js os-complete-v4.js os-complete-v4-fix.js os-resource-planner-v1.js os-dayone-v2.js os-stability-v1.js os-nepali-calendar-v1.js os-company-units-v1.js; do node --check "$f"; done
+          node --check app.js
+          node --check backend-clean.js
           test -f index.html
           test -f styles.css
-          test -f os-complete-v4.css
-          test -f os-dayone-v1.css
-          test -f manifest.webmanifest
           test -f sw.js
-          test -f os-company-units-v1.js
-          test -f supabase/migrations/20260903_client_portal_pwa.sql
-          test -f supabase/migrations/20260903_production_cost_hardening.sql
-          test -f supabase/migrations/20260903_lock_vendor_payment_fields.sql
-          test -f supabase/migrations/20260904_function_crew_requirements.sql
-          test -f supabase/migrations/20260904_event_operations_tasks.sql
-          test -f supabase/migrations/20260904_documents.sql
-          test -f supabase/migrations/20260904_marketing_ads.sql
-          test -f supabase/migrations/20260904_workflow_document_links.sql
-          test -f supabase/migrations/20260904_company_os_hardening.sql
-          test -f supabase/migrations/20260904_resource_conflict_hardening.sql
+          test -f manifest.webmanifest
+          test -f supabase/schema.sql
+          ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' index.html
+          ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' sw.js
+          ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' .github/workflows/pages.yml
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
