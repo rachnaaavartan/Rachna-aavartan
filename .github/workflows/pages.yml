@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,14 +22,26 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Normalize to one runtime
+        run: node .github/repair-unified-runtime.cjs
+      - name: Commit normalized production tree
+        run: |
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'Unify runtime, close modals reliably, and standardize BS UI'
+            git push origin HEAD:main
+          fi
       - name: Validate production runtime
         run: |
           set -e
           node --check app.js
-          node --check backend-clean.js
           test -f index.html
           test -f styles.css
-          test -f ui.css
           test -f sw.js
           test -f manifest.webmanifest
           test -f supabase/schema.sql
@@ -38,11 +50,17 @@ jobs:
           ! grep -Eo 'os-[A-Za-z0-9._-]+\.(js|css)' sw.js
           ! grep -E '30% advance gate|30% advance is the booking gate|Confirmed after advance' app.js
           ! grep -F 'type="date"' app.js index.html
+          ! grep -F 'backend-clean.js' index.html sw.js app.js
+          ! grep -F 'ui.css' index.html sw.js
+          test ! -e backend-clean.js
+          test ! -e ui.css
           grep -Fq "const booked=p=>p?.status==='booked';" app.js
           grep -q 'event_date_bs' app.js
           grep -q 'data-bs-year' app.js
           grep -q 'data-bs-month' app.js
           grep -q 'data-bs-day' app.js
+          grep -Fq "ui.page='settings';ui.tab='overview'" app.js
+          grep -Fq "ui.query=stage||''" app.js
           node <<'NODE'
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
