@@ -37,6 +37,7 @@ jobs:
           node --check os-operations-v2.js
           node --check os-crm-v2.js
           node --check os-documents-v2.js
+          node --check os-marketing-v2.js
           test -f manifest.webmanifest
           test -f sw.js
           test -f supabase/migrations/20260903_client_portal_pwa.sql
@@ -45,6 +46,7 @@ jobs:
           test -f supabase/migrations/20260904_function_crew_requirements.sql
           test -f supabase/migrations/20260904_event_operations_tasks.sql
           test -f supabase/migrations/20260904_documents.sql
+          test -f supabase/migrations/20260904_marketing_ads.sql
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
