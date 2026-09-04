@@ -1,20 +1,13 @@
 (()=>{
 'use strict';
-if(window.__RACHNA_GLOBAL_BS_V2__)return;window.__RACHNA_GLOBAL_BS_V2__=true;
-const C=window.RachnaDateCheck;if(!C?.bsToAd||!C?.adToBs)return;
-const MONTHS=['Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'];
-const FIRST=2000,LAST=2099,pad=n=>String(n).padStart(2,'0');
-const parts=v=>{const m=String(v||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);return m?{y:+m[1],m:+m[2],d:+m[3]}:null};
-const todayAd=()=>{try{const a=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()),o={};a.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`}catch(_){return new Date().toISOString().slice(0,10)}};
-const todayBs=()=>{const p=C.adToBs(todayAd());return p?`${p.y}-${pad(p.m)}-${pad(p.d)}`:'2083-05-19'};
-function days(y,m){for(let d=32;d>=28;d--)if(C.bsToAd(`${y}-${pad(m)}-${pad(d)}`))return d;return 30}
-function picker(p){const max=days(p.y,p.m),dd=Math.min(p.d||1,max);return `<div class="os-bs-picker"><select data-bs-y aria-label="BS year">${Array.from({length:LAST-FIRST+1},(_,i)=>FIRST+i).map(y=>`<option value="${y}" ${y===p.y?'selected':''}>${y}</option>`).join('')}</select><select data-bs-m aria-label="BS month">${MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===p.m?'selected':''}>${m}</option>`).join('')}</select><select data-bs-d aria-label="BS day">${Array.from({length:max},(_,i)=>i+1).map(x=>`<option value="${x}" ${x===dd?'selected':''}>${x}</option>`).join('')}</select></div>`}
-function style(){if(document.getElementById('os-bs-style-v2'))return;const s=document.createElement('style');s.id='os-bs-style-v2';s.textContent='.os-bs-control{margin-top:4px}.os-bs-picker{display:grid;grid-template-columns:1.05fr 1fr .75fr;gap:8px}.os-bs-picker select{width:100%;min-height:40px;padding:0 9px;border-radius:9px}.os-bs-note{display:block;margin-top:4px;font-size:11px;opacity:.65}.os-bs-hidden{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.os-bs-source{display:none!important}';document.head.appendChild(s)}
-function relabel(input){const sp=input.closest('label')?.querySelector('span');if(!sp)return;let t=sp.textContent||'';t=t.replace(/\s*\((?:AD|BS)\)/ig,'');if(/date|birthday|dob/i.test(t))sp.textContent=`${t} (BS)`}
-function wrapNative(input){if(input.dataset.osBsWrapped==='1'||input.dataset.osBsSkip==='1'||input.type!=='date')return;style();relabel(input);const existing=parts(C.adToBs(input.value)),fallback=parts(todayBs())||{y:2083,m:5,d:1},p=existing||fallback;input.dataset.osBsWrapped='1';input.classList.add('os-bs-hidden');const box=document.createElement('div');box.className='os-bs-control';box.innerHTML=picker(p)+'<span class="os-bs-note">Nepali date · BS</span>';input.insertAdjacentElement('afterend',box);bind(box,input,p,false)}
-function wrapText(input){if(input.dataset.osBsWrapped==='1'||input.dataset.osBsSkip==='1'||input.type!=='text')return;const label=input.closest('label'),txt=label?.querySelector('span')?.textContent||'';if(!/date|birthday|dob/i.test(txt)||!/\bBS\b|Bikram|Nepali/i.test(txt)||/range/i.test(txt))return;style();relabel(input);const existing=parts(input.value),p=existing||parts(todayBs())||{y:2083,m:5,d:1};input.dataset.osBsWrapped='1';input.classList.add('os-bs-source');const box=document.createElement('div');box.className='os-bs-control';box.innerHTML=picker(p)+'<span class="os-bs-note">Nepali date · BS</span>';input.insertAdjacentElement('afterend',box);bind(box,input,p,true)}
-function bind(box,input,p,isBs){const y=box.querySelector('[data-bs-y]'),m=box.querySelector('[data-bs-m]'),d=box.querySelector('[data-bs-d]');const sync=()=>{const yy=+y.value,mm=+m.value,max=days(yy,mm),dd=Math.min(+d.value||1,max);d.innerHTML=Array.from({length:max},(_,i)=>i+1).map(v=>`<option value="${v}" ${v===dd?'selected':''}>${v}</option>`).join('');const bs=`${yy}-${pad(mm)}-${pad(dd)}`;input.dataset.bsValue=bs;input.value=isBs?bs:C.bsToAd(bs);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))};[y,m,d].forEach(x=>x.addEventListener('change',sync));input.dataset.bsValue=`${p.y}-${pad(p.m)}-${pad(p.d)}`}
-function scan(root=document){style();root.querySelectorAll?.('input[type="date"]').forEach(wrapNative);root.querySelectorAll?.('input[type="text"]').forEach(wrapText)}
-scan();new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n)}))).observe(document.body,{subtree:true,childList:true});
-window.RachnaBS={months:MONTHS,bsToAd:C.bsToAd,adToBs:C.adToBs,todayBs};
+/* Date entry and conversion are now owned by os-nepali-calendar-v1.js.
+   This compatibility shim intentionally does not wrap inputs or register observers. */
+if(window.RachnaDateCheck && !window.RachnaBS){
+  window.RachnaBS={
+    bsToAd:window.RachnaDateCheck.bsToAd,
+    adToBs:window.RachnaDateCheck.adToBs,
+    todayBs:window.RachnaDateCheck.todayBs,
+    months:['Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra']
+  };
+}
 })();
