@@ -70,5 +70,3 @@ revoke execute on function public.refresh_project_financials(uuid) from public;
 grant execute on function public.refresh_project_financials(uuid) to authenticated;
 revoke execute on function public.my_org_id() from public;
 grant execute on function public.my_org_id() to authenticated;
-revoke execute on function public.enforce_inquiry_booking_status() from public,authenticated;
-revoke execute on function public.enforce_project_booking_status() from public,authenticated;
