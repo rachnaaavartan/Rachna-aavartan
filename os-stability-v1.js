@@ -8,12 +8,13 @@ const safeWrite=s=>{try{localStorage.setItem(KEY,JSON.stringify(s))}catch(_){}};
 let ui=safeRead();
 let saveTimer=0;
 const persist=patch=>{ui={...ui,...patch,t:Date.now()};clearTimeout(saveTimer);saveTimer=setTimeout(()=>safeWrite(ui),80)};
-const target=e=>e.target?.closest?.('[data-route],[data-action],[data-project-tab],[data-cos-tab],[data-cos-open],[data-cos-filter]');
+const target=e=>e.target?.closest?.('[data-route],[data-action],[data-project-tab],[data-cos-tab],[data-cos-open],[data-cos-filter],[data-do-tab]');
 
 document.addEventListener('click',e=>{
   const t=target(e); if(!t)return;
   const d=t.dataset||{};
   if(d.cosTab){persist({surface:'company',companyTab:d.cosTab});return;}
+  if(d.doTab){persist({surface:'company',companyTab:d.doTab});return;}
   if(d.cosOpen){persist({surface:'company',companyTab:'command'});return;}
   if(d.cosFilter){persist({surface:'company',companyFilter:d.cosFilter});return;}
   if(d.route){persist({surface:'classic',route:d.route,projectId:'',projectTab:'overview'});return;}
@@ -33,8 +34,6 @@ document.addEventListener('input',e=>{
 window.addEventListener('scroll',()=>{ui.scrollY=window.scrollY||0;clearTimeout(saveTimer);saveTimer=setTimeout(()=>safeWrite(ui),180)},{passive:true});
 window.addEventListener('beforeunload',()=>{ui.scrollY=window.scrollY||0;safeWrite(ui)});
 
-// Ordinary CRUD operations should not trigger a full 19-table reload. The existing data layer
-// calls A.refresh() after writes; provide a table hint so that refresh only pulls the affected data.
 const baseRefresh=A.refresh;
 const mutationHintMap={
   customers:['customers'], inquiries:['inquiries'], projects:['projects'], event_functions:['event_functions'],
@@ -50,7 +49,6 @@ A.refresh=async function(options={}){
   if(options&&options.tables)return baseRefresh(options);
   if(options&&options.core)return baseRefresh(options);
   if(hint&&hint.length)return baseRefresh({tables:[...new Set(hint)]});
-  // Explicit full refresh is still available for the user-facing Refresh button.
   if(options&&options.full)return baseRefresh({});
   return baseRefresh({core:true});
 };
@@ -76,18 +74,15 @@ function restoreClassic(){
   return true;
 }
 function restoreCompany(){
+  const tabName=ui.companyTab||'command';
+  const current=document.querySelector(`#cosRoot .cos-nav-item[data-cos-tab="${CSS.escape(tabName)}"]`);
+  if(current){current.click();setTimeout(()=>{const search=document.querySelector('#cosRoot [data-cos-search]');if(search&&ui.companySearch!=null){search.value=ui.companySearch;search.dispatchEvent(new Event('input',{bubbles:true}))}restoreScroll()},80);return true;}
+  const dayOne=document.querySelector(`#nav .dayone-company-nav[data-do-tab="${CSS.escape(tabName)}"]`);
+  if(dayOne){dayOne.click();return true;}
   const opener=document.querySelector('[data-cos-open]');
   if(!opener)return false;
   opener.click();
-  setTimeout(()=>{
-    const tab=document.querySelector(`#cosRoot .cos-nav-item[data-cos-tab="${CSS.escape(ui.companyTab||'command')}"]`);
-    if(tab)tab.click();
-    setTimeout(()=>{
-      const search=document.querySelector('#cosRoot [data-cos-search]');
-      if(search&&ui.companySearch!=null){search.value=ui.companySearch;search.dispatchEvent(new Event('input',{bubbles:true}))}
-      restoreScroll();
-    },80);
-  },80);
+  setTimeout(()=>restoreCompany(),100);
   return true;
 }
 function restoreScroll(){const y=Math.max(0,Number(ui.scrollY||0));if(y)requestAnimationFrame(()=>window.scrollTo(0,y));}
@@ -101,8 +96,6 @@ function restore(){
     if(ok||tries>=16){clearInterval(timer);if(!ok)restoreScroll();}
   },250);
 }
-
-// Keep stale/invalid state from trapping the user in an old screen.
 if(ui.t&&Date.now()-ui.t>1000*60*60*24*30){ui={};safeWrite(ui)}
 setTimeout(restore,900);
 })();
