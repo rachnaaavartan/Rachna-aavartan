@@ -1,3 +1,4 @@
+// RACHNA DATE CHECK V2 — standalone BS-first handler; validated in the production Pages pipeline.
 (()=>{
 'use strict';
 if(window.__RACHNA_DATECHECK_V2__) return;
