@@ -16,47 +16,51 @@ function unwrapIife(src) {
 }
 
 let app = fs.readFileSync(appPath, 'utf8');
-let backend = fs.readFileSync(backendPath, 'utf8');
 
-if (!app.includes("$('#authBtn')?.addEventListener('click'")) throw new Error('Expected account handler missing');
-if (!app.includes("'filter-inquiry':({stage})=>{ui.page='inquiries';ui.query='';render()},")) throw new Error('Expected inquiry filter handler missing');
+// One-time merge is only needed on legacy trees. Once merged, this script is idempotent.
+if (fs.existsSync(backendPath)) {
+  const backend = unwrapIife(fs.readFileSync(backendPath, 'utf8'));
+  const appBody = unwrapIife(app);
+  app = `(() => {\n'use strict';\n{\n${backend}\n}\n${appBody}\n})();\n`;
+  fs.unlinkSync(backendPath);
+}
 
-backend = unwrapIife(backend);
-app = unwrapIife(app);
+// Fix pipeline shortcuts so the displayed stage is actually applied.
+app = app.replace(
+  /'filter-inquiry':\(\{stage\}\)=>\{ui\.page='inquiries';ui\.query='';render\(\)\},/,
+  "'filter-inquiry':({stage})=>{ui.page='inquiries';ui.query=stage||'';render()},"
+);
 
-// Keep one JavaScript runtime file while isolating backend lexical names in a block.
-const merged = `(() => {\n'use strict';\n{\n${backend}\n}\n${app}\n})();\n`;
-
-let repaired = merged
-  .replace(
-    "'filter-inquiry':({stage})=>{ui.page='inquiries';ui.query='';render()},",
-    "'filter-inquiry':({stage})=>{ui.page='inquiries';ui.query=stage||'';render()},"
-  )
-  .replace(
-    "const modal=(title,body,actions='')=>{const b=$('#backdrop'),m=$('#modal');m.innerHTML=`<div class=\"modal-head\"><div><div class=\"eyebrow\">RACHNA OS</div><h2>${esc(title)}</h2></div><button class=\"close-btn\" type=\"button\" data-action=\"close\">×</button></div><div class=\"modal-body\">${body}</div><div class=\"modal-foot\"><button class=\"btn\" type=\"button\" data-action=\"close\">Cancel</button>${actions}</div>`;b.classList.add('show');bindPickers(m)};",
-    "const modal=(title,body,actions='')=>{const b=$('#backdrop'),m=$('#modal');m.innerHTML=`<div class=\"modal-head\"><div><div class=\"eyebrow\">RACHNA OS</div><h2>${esc(title)}</h2></div><button class=\"close-btn\" type=\"button\" data-action=\"close\">×</button></div><div class=\"modal-body\">${body}</div><div class=\"modal-foot\"><button class=\"btn\" type=\"button\" data-action=\"close\">Cancel</button>${actions}</div>`;b.classList.add('show');bindPickers(m);m.querySelectorAll('[data-action=\"close\"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};"
-  )
-  .replace(
-    "const closeModal=()=>$('#backdrop')?.classList.remove('show');",
-    "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};"
-  )
-  .replace(
-    "$('#authBtn')?.addEventListener('click',()=>state.user?settingsPage()&&render():authModal());",
-    "$('#authBtn')?.addEventListener('click',()=>{if(state.user){ui.project=null;ui.page='settings';ui.tab='overview';ui.query='';closeModal();render()}else authModal()});"
+// Make modal close independent from the global click delegate.
+app = app.replace(
+  /const closeModal=\(\)=>[^;]+;/,
+  "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};"
+);
+if (!app.includes("m.querySelectorAll('[data-action=\"close\"]').forEach")) {
+  app = app.replace(
+    /;b\.classList\.add\('show'\);bindPickers\(m\)\};/,
+    ";b.classList.add('show');bindPickers(m);m.querySelectorAll('[data-action=\"close\"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};"
   );
+}
 
-if (!repaired.includes("ui.page='settings';ui.tab='overview'")) throw new Error('Account navigation fix did not apply');
-if (!repaired.includes("ui.query=stage||''")) throw new Error('Inquiry filter fix did not apply');
+// Route Account through the same dispatcher as every other visible action.
+app = app.replace(
+  /const HANDLERS=\{/,
+  "const HANDLERS={\n account:()=>{if(state.user){ui.project=null;ui.page='settings';ui.tab='overview';ui.query='';closeModal();render()}else authModal()},"
+);
+app = app.replace(
+  /function bindGlobal\(\)\{document\.addEventListener\('click',e=>\{/,
+  "function bindGlobal(){document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()},{capture:true});document.addEventListener('click',e=>{"
+);
+// Remove duplicate direct top-bar listeners now handled by the dispatcher.
+app = app.replace(/;\$\('#refresh'\)\?\.addEventListener\('click',[\s\S]*?;const dateBtn=\$\('\[data-rachna-date-check\]'\);if\(dateBtn\)dateBtn\.addEventListener\('click',[\s\S]*?dateCheckModal\(\)\);/,
+  ';');
 
-// Add an Escape key close path to the single global interaction system.
-const oldBind = "function bindGlobal(){document.addEventListener('click',e=>{";
-const newBind = "function bindGlobal(){document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()},{capture:true});document.addEventListener('click',e=>{";
-if (!repaired.includes(oldBind)) throw new Error('Global binder not found');
-repaired = repaired.replace(oldBind, newBind);
+if (!app.includes("const HANDLERS={\n account:")) throw new Error('Account handler missing after normalization');
+if (!app.includes("ui.query=stage||''")) throw new Error('Inquiry filter fix missing after normalization');
 
-fs.writeFileSync(appPath, repaired);
+fs.writeFileSync(appPath, app);
 
-// Merge the second stylesheet into the canonical stylesheet, then remove it.
 if (fs.existsSync(uiCssPath)) {
   const styles = fs.readFileSync(stylesPath, 'utf8');
   const ui = fs.readFileSync(uiCssPath, 'utf8');
@@ -65,19 +69,20 @@ if (fs.existsSync(uiCssPath)) {
 }
 
 let index = fs.readFileSync(indexPath, 'utf8');
-index = index.replace(/\n<link rel="stylesheet" href="ui\.css\?v=[^"]+">/, '');
-index = index.replace(/\n<script src="\.\/backend-clean\.js\?v=[^"]+"><\/script>/, '');
-index = index.replace(/backend-clean\.js\?v=[^'\"]+/, '');
-index = index.replace(/ui\.css\?v=[^'\"]+/, '');
-const oldAppVersion = index.match(/app\.js\?v=([^'\"]+)/)?.[1] || '20260905.4';
-const version = '20260905.5';
-index = index.replaceAll(oldAppVersion, version);
+index = index.replace(/\n<link rel="stylesheet" href="ui\.css\?v=[^"]+">/g, '');
+index = index.replace(/\n<script src="\.\/backend-clean\.js\?v=[^"]+"><\/script>/g, '');
+index = index.replace(/\n<script src=""><\/script>/g, '');
+index = index.replace(/data-rachna-date-check/g, 'data-action="date-check"');
+if (!index.includes('data-action="refresh"')) index = index.replace('id="refresh" title="Refresh"', 'id="refresh" data-action="refresh" title="Refresh"');
+if (!index.includes('data-action="account"')) index = index.replace('id="authBtn" title="Account"', 'id="authBtn" data-action="account" title="Account"');
+const version = '20260905.7';
+index = index.replace(/\?v=[0-9.]+/g, '?v=' + version);
 fs.writeFileSync(indexPath, index);
 
 let sw = fs.readFileSync(swPath, 'utf8');
-sw = sw.replace(/const CACHE='[^']+'/,"const CACHE='rachna-os-v20260905-5'");
+sw = sw.replace(/const CACHE='[^']+'/, "const CACHE='rachna-os-v20260905-7'");
 sw = sw.replace(/,?'\.\/ui\.css\?v=[^']+'/g, '').replace(/,?'\.\/backend-clean\.js\?v=[^']+'/g, '');
 sw = sw.replace(/\?v=[0-9.]+/g, '?v=' + version);
 fs.writeFileSync(swPath, sw);
 
-console.log('Unified runtime repair applied:', version);
+console.log('Production runtime normalized:', version);
