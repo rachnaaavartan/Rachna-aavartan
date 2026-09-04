@@ -27,6 +27,7 @@ jobs:
           node --check app.js
           node --check backend-clean.js
           node --check os-data-v2.js
+          node --check os-performance.js
           node --check os-hardening.js
           node --check os-integrations.js
           node --check os-qa.js
@@ -41,6 +42,7 @@ jobs:
           node --check os-marketing-v2.js
           node --check os-booking-v2.js
           node --check os-control-v3.js
+          node --check os-workflow-v3.js
           test -f index.html
           test -f styles.css
           test -f manifest.webmanifest
@@ -52,6 +54,7 @@ jobs:
           test -f supabase/migrations/20260904_event_operations_tasks.sql
           test -f supabase/migrations/20260904_documents.sql
           test -f supabase/migrations/20260904_marketing_ads.sql
+          test -f supabase/migrations/20260904_workflow_document_links.sql
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
