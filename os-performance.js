@@ -24,6 +24,20 @@
     return A.state;
   }
 
+  async function finishAuth() {
+    const profileResult = await A.sb.from('profiles').select('*').eq('id', A.state.user.id).maybeSingle();
+    if (profileResult.error) throw profileResult.error;
+    A.state.profile = profileResult.data;
+    if (A.state.profile?.organization_id) {
+      const orgResult = await A.sb.from('organizations').select('*').eq('id', A.state.profile.organization_id).maybeSingle();
+      if (orgResult.error) throw orgResult.error;
+      A.state.org = orgResult.data;
+    }
+    await A.refresh({ core: true });
+    setTimeout(() => A.preload(), 0);
+    return A.state;
+  }
+
   A.refresh = async function(options = {}) {
     if (!A.state.user) return A.state;
     if (options.core) return loadMany(CORE);
@@ -48,20 +62,53 @@
     if (error) throw error;
     A.state.user = data.session?.user || null;
     A.state.connected = !!A.state.user;
-    if (A.state.user) {
-      const profileResult = await A.sb.from('profiles').select('*').eq('id', A.state.user.id).maybeSingle();
-      if (profileResult.error) throw profileResult.error;
-      A.state.profile = profileResult.data;
-      if (A.state.profile?.organization_id) {
-        const orgResult = await A.sb.from('organizations').select('*').eq('id', A.state.profile.organization_id).maybeSingle();
-        if (orgResult.error) throw orgResult.error;
-        A.state.org = orgResult.data;
-      }
-      await A.refresh({ core: true });
-      setTimeout(() => A.preload(), 0);
-    }
+    if (A.state.user) await finishAuth();
     return A.state;
   };
+
+  A.signIn = async function(email, password) {
+    if (!String(email || '').trim()) throw new Error('Email is required');
+    if (!String(password || '').trim()) throw new Error('Password is required');
+    const result = await A.sb.auth.signInWithPassword({ email: String(email).trim(), password });
+    if (result.error) throw result.error;
+    A.state.user = result.data.user;
+    A.state.connected = true;
+    return finishAuth();
+  };
+
+  A.signUp = async function(email, password, fullName, orgName) {
+    if (!String(email || '').trim()) throw new Error('Email is required');
+    if (!String(password || '').trim()) throw new Error('Password is required');
+    const result = await A.sb.auth.signUp({ email: String(email).trim(), password, options: { data: { full_name: fullName || String(email).split('@')[0] } } });
+    if (result.error) throw result.error;
+    if (!result.data.user) throw new Error('Signup did not create a user.');
+    if (!result.data.session) return { needsConfirmation: true };
+    A.state.user = result.data.user;
+    A.state.connected = true;
+    const workspace = await A.sb.rpc('bootstrap_workspace', { p_full_name: fullName || String(email).split('@')[0], p_org_name: orgName || 'Rachna Workspace' });
+    if (workspace.error) throw workspace.error;
+    return finishAuth();
+  };
+
+  // Keep the existing render behavior, but debounce search input and restore focus/caret after the renderer replaces the input.
+  let allowInput = false;
+  let pendingSearch = null;
+  document.addEventListener('input', (event) => {
+    const target = event.target;
+    if (allowInput || !['eventSearch','projectSearch','clientSearch','fileSearch'].includes(target?.id)) return;
+    const value = target.value;
+    clearTimeout(pendingSearch);
+    event.stopImmediatePropagation();
+    pendingSearch = setTimeout(() => {
+      allowInput = true;
+      try { target.dispatchEvent(new Event('input', { bubbles: true })); } finally { allowInput = false; }
+      const replacement = document.getElementById(target.id);
+      if (replacement) {
+        replacement.focus();
+        try { replacement.setSelectionRange(value.length, value.length); } catch (_) {}
+      }
+    }, 140);
+  }, true);
 
   A.originalInit = originalAuthInit;
 })();
