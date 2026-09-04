@@ -20,10 +20,10 @@
   <main class="main">
     <header class="topbar">
       <div class="crumb" id="crumb">Home</div>
-      <button type="button" class="top-action" data-rachna-date-check>◫ Date Check</button>
+      <button type="button" class="top-action" data-action="date-check">◫ Date Check</button>
       <button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button>
       <button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button>
-      <div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" title="Account">R</button></div>
+      <div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div>
     </header>
     <section class="page" id="page"></section>
   </main>
@@ -41,10 +41,9 @@ if(window.NepaliDate&&!window.DateConverter){
   };
 }
 </script>
-<script src=""></script>
-<script src="app.js?v=20260905.5"></script>
+<script src="app.js?v=20260905.6"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.5').catch(()=>{});});
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.6').catch(()=>{});});
 </script>
 </body>
 </html>
