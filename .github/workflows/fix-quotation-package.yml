@@ -1,0 +1,123 @@
+name: Fix quotation package pricing
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[quote-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch quotation workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+
+          s=s.replace(
+          """  async function addQuoteItem(quotationId, x) {
+    const out = await q(sb.from('quotation_items').insert({
+      quotation_id: quotationId, function_id: x.function_id || null, service_id: x.service_id || null,
+      description: x.description, quantity: n(x.quantity, 1), customer_price: n(x.customer_price), internal_cost: n(x.internal_cost)
+    }).select().single());
+    const qrow = state.quotations.find((q) => q.id === quotationId);
+    await refresh();
+    if (qrow) await recalc(qrow.project_id);
+    return out;
+  }
+""",
+          """  async function addQuoteItem(quotationId, x) {
+    const out = await q(sb.from('quotation_items').insert({
+      quotation_id: quotationId, function_id: x.function_id || null, service_id: x.service_id || null,
+      description: x.description, quantity: n(x.quantity, 1), customer_price: x.customer_price === '' || x.customer_price == null ? null : n(x.customer_price), internal_cost: n(x.internal_cost)
+    }).select().single());
+    const qrow = state.quotations.find((q) => q.id === quotationId);
+    await refresh();
+    if (qrow) await recalc(qrow.project_id);
+    return out;
+  }
+
+  async function deleteQuoteItem(id) {
+    if (!id) throw new Error('Quotation item ID is required');
+    const item = state.quotationItems.find(x => x.id === id);
+    await q(sb.from('quotation_items').delete().eq('id', id));
+    if (item?.quotation_id) {
+      const qrow = state.quotations.find(q => q.id === item.quotation_id);
+      if (qrow) await recalc(qrow.project_id);
+    } else await refresh();
+    return true;
+  }
+""",1)
+
+          s=s.replace(
+          """    return insert('quotations', { project_id: projectId, version, status: 'draft', customer_total: 0, internal_total: 0, notes: null });
+""",
+          """    return insert('quotations', { project_id: projectId, version, status: 'draft', customer_total: arguments[1] && arguments[1].customer_total != null ? n(arguments[1].customer_total) : 0, internal_total: 0, notes: arguments[1]?.notes || null });
+""",1)
+
+          old_qtab="""function quotationTab(p,qs,sv){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">QUOTATION</div><h2>Versions</h2><p>Create and revise quotes without touching booking status.</p></div><button type=\"button\" class=\"btn primary\" data-action=\"new-quote\" data-project=\"${p.id}\">＋ New quote</button></div>${qs.map(q=>`<div class=\"list-card\"><div><b>Version ${esc(q.version||1)}</b><small>${status(q.status)} · ${money(q.customer_total)}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-quote\" data-id=\"${q.id}\">Edit</button><button type=\"button\" class=\"btn tiny\" data-action=\"add-quote-item\" data-id=\"${q.id}\">＋ Item</button></div></div>`).join('')||empty('No quotations')}</section>}"""
+          new_qtab="""function quotationTab(p,qs,sv){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">QUOTATION</div><h2>Versions</h2><p>Use one package price for the quotation. Individual item prices are optional.</p></div><button type=\"button\" class=\"btn primary\" data-action=\"new-quote\" data-project=\"${p.id}\">＋ New quote</button></div>${qs.map(q=>{const items=state.quotationItems.filter(i=>i.quotation_id===q.id);return `<div class=\"list-card\"><div><b>Version ${esc(q.version||1)}</b><small>${status(q.status)} · Package ${money(q.customer_total)}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-quote\" data-id=\"${q.id}\">Edit package</button><button type=\"button\" class=\"btn tiny\" data-action=\"add-quote-item\" data-id=\"${q.id}\">＋ Item</button></div><div class=\"stack\" style=\"grid-column:1/-1\">${items.map(i=>`<div class=\"mini-row\"><div><b>${esc(i.description)}</b><small>${esc(i.quantity||1)} × ${i.customer_price==null?'Individual price optional':money(i.customer_price)} · Internal ${money(i.internal_cost)}</small></div><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-quote-item\" data-id=\"${i.id}\">Delete</button></div>`).join('')||empty('No items','Add the items included in this package.')}</div></div>`}).join('')||empty('No quotations')}</section>}"""
+          if old_qtab not in s: raise SystemExit('quotationTab target missing')
+          s=s.replace(old_qtab,new_qtab,1)
+
+          old_edit=""" 'edit-quote':({id})=>{const q=state.quotations.find(x=>x.id===id);if(!q)return;modal('Edit quotation',select('Status','qStatus',[['draft','Draft'],['sent','Sent'],['accepted','Accepted'],['rejected','Rejected']],q.status||'draft')+field('Notes','qNotes','text',q.notes||''),`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote\" data-id=\"${id}\">Save quotation</button>`)},
+"""
+          new_edit=""" 'edit-quote':({id})=>{const q=state.quotations.find(x=>x.id===id);if(!q)return;modal('Edit quotation',`<div class=\"form-grid\">${field('Package price (NPR)','qPackage','number',q.customer_total||'','required min=\"1\"')}${select('Status','qStatus',[['draft','Draft'],['sent','Sent'],['accepted','Accepted'],['rejected','Rejected']],q.status||'draft')}${textarea('Notes','qNotes',q.notes||'')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote\" data-id=\"${id}\">Save quotation</button>`)},
+"""
+          if old_edit not in s: raise SystemExit('edit quote target missing')
+          s=s.replace(old_edit,new_edit,1)
+
+          old_save=""" 'save-quote':async({id})=>safe(async()=>{await A.updateQuotation(id,{status:$('#qStatus').value,notes:$('#qNotes').value},ui.project);closeModal();render();toast('Quotation updated')}),
+"""
+          new_save=""" 'save-quote':async({id})=>safe(async()=>{const packagePrice=Number($('#qPackage').value||0);if(!(packagePrice>0)){toast('Package price is required.',true);return}await A.updateQuotation(id,{customer_total:packagePrice,status:$('#qStatus').value,notes:$('#qNotes').value},ui.project);closeModal();render();toast('Quotation updated')}),
+"""
+          if old_save not in s: raise SystemExit('save quote target missing')
+          s=s.replace(old_save,new_save,1)
+
+          old_add=""" 'add-quote-item':({id})=>modal('Add quotation item',field('Description','qiDescription','text','')+field('Quantity','qiQty','number','1')+field('Customer price (NPR)','qiPrice','number','')+field('Internal cost (NPR)','qiCost','number',''),`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote-item\" data-id=\"${id}\">Add item</button>`),
+"""
+          new_add=""" 'add-quote-item':({id})=>modal('Add quotation item',field('Description','qiDescription','text','')+field('Quantity','qiQty','number','1')+field('Individual customer price (NPR) — optional','qiPrice','number','')+field('Internal cost (NPR)','qiCost','number',''),`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote-item\" data-id=\"${id}\">Add item</button>`),
+"""
+          if old_add not in s: raise SystemExit('add quote item target missing')
+          s=s.replace(old_add,new_add,1)
+
+          old_save_item=""" 'save-quote-item':async({id})=>safe(async()=>{await A.addQuoteItem(id,{description:$('#qiDescription').value,quantity:Number($('#qiQty').value||1),customer_price:Number($('#qiPrice').value||0),internal_cost:Number($('#qiCost').value||0)});closeModal();render();toast('Quotation item added')}),
+"""
+          new_save_item=""" 'save-quote-item':async({id})=>safe(async()=>{await A.addQuoteItem(id,{description:$('#qiDescription').value,quantity:Number($('#qiQty').value||1),customer_price:$('#qiPrice').value.trim()===''?null:Number($('#qiPrice').value),internal_cost:Number($('#qiCost').value||0)});closeModal();render();toast('Quotation item added')}),
+ 'delete-quote-item':async({id})=>{if(!confirm('Delete this quotation item?'))return;await safe(async()=>{await A.deleteQuoteItem(id);render();toast('Quotation item deleted')})},
+"""
+          if old_save_item not in s: raise SystemExit('save quote item target missing')
+          s=s.replace(old_save_item,new_save_item,1)
+
+          old_new=""" 'new-quote':({project})=>safe(async()=>{await A.createQuotation(project||ui.project);render();toast('Quotation created')}),
+"""
+          new_new=""" 'new-quote':({project})=>{const pid=project||ui.project;modal('New quotation',`<div class=\"form-grid\">${field('Package price (NPR)','newQPackage','number','','required min=\"1\"')}${textarea('Notes','newQNotes','')}</div><p class=\"notice\">Package price is required. Individual item prices are optional.</p>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-new-quote\" data-project=\"${pid}\">Create quotation</button>`)},
+ 'save-new-quote':async({project})=>safe(async()=>{const packagePrice=Number($('#newQPackage').value||0);if(!(packagePrice>0)){toast('Package price is required.',true);return}await A.createQuotation(project||ui.project,{customer_total:packagePrice,notes:$('#newQNotes').value});closeModal();render();toast('Quotation created')}),
+"""
+          if old_new not in s: raise SystemExit('new quote target missing')
+          s=s.replace(old_new,new_new,1)
+
+          s=s.replace("recordPayment, recordExpense, recordAdvance,", "recordPayment, recordExpense, recordAdvance,",1)
+          s=s.replace("createQuotation, updateQuotation, addQuoteItem, createQuoteVersionFrom, recalc,", "createQuotation, updateQuotation, addQuoteItem, deleteQuoteItem, createQuoteVersionFrom, recalc,",1)
+
+          # Remove this one-time inspection workflow after applying the change.
+          inspect=Path('.github/workflows/inspect-quotation.yml')
+          if inspect.exists(): inspect.unlink()
+          p.write_text(s)
+          PY
+          node --check app.js
+          grep -Fq "deleteQuoteItem" app.js
+          grep -Fq "Package price (NPR)" app.js
+          grep -Fq "Individual customer price (NPR) — optional" app.js
+          ! grep -Fq "data-bs-year" app.js
+          git add app.js .github/workflows/inspect-quotation.yml
+          git commit -m "[quote-fix] Use package pricing and deletable quotation items"
+          git push origin HEAD:main
