@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.10">
-<link rel="stylesheet" href="styles.css?v=20260905.10">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.11">
+<link rel="stylesheet" href="styles.css?v=20260905.11">
 </head>
 <body>
 <div class="app">
@@ -37,9 +37,8 @@
   const NP = window.NepaliDate;
   if (!NP) return;
 
-  // Rachna OS uses a single, explicit BS↔AD adapter so the UI always works in BS.
-  // The numeric constructor is used for strict BS day validation because the library
-  // normalizes out-of-range days instead of reliably rejecting them.
+  // Use the library's validated string parser for BS days. The numeric constructor
+  // intentionally normalizes overflow days, which can make a dropdown appear empty.
   class RachnaDateConverter {
     constructor(value) { this.value = value; }
 
@@ -50,8 +49,9 @@
       const month = Number(match[2]);
       const date = Number(match[3]);
       if (month < 1 || month > 12 || date < 1 || date > 32) throw new Error('Invalid BS date');
-      const d = new NP(year, month - 1, date);
-      if (d.getYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== date) throw new Error('Invalid BS date');
+      const d = new NP(`${year}-${String(month).padStart(2,'0')}-${String(date).padStart(2,'0')}`);
+      const bs = d.getBS();
+      if (bs.year !== year || bs.month !== month || bs.date !== date) throw new Error('Invalid BS date');
       const ad = d.getAD();
       return { year: ad.year, month: ad.month, date: ad.date };
     }
@@ -73,8 +73,8 @@
 })();
 </script>
 <script>
-// The production UI boot currently registers its DOMContentLoaded handler before it can call
-// RachnaAPI.init(). Wrap that handler so Supabase restores the persisted session first.
+// Gate DOM boot behind Supabase session restoration so authenticated users do not
+// briefly see the sign-in panel during page startup.
 (() => {
   const nativeAdd = document.addEventListener.bind(document);
   document.addEventListener = (type, listener, options) => {
@@ -93,7 +93,7 @@
 </script>
 <script src="app.js?v=20260905.10"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.10').catch(()=>{});});
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.11').catch(()=>{});});
 </script>
 </body>
 </html>
