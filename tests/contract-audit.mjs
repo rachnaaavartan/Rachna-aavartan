@@ -6,19 +6,13 @@ const html = fs.readFileSync('index.html', 'utf8');
 function unique(values) { return [...new Set(values)].sort(); }
 function assert(ok, msg) { if (!ok) throw new Error(msg); }
 
+// Every A.foo reference used inside the runtime must be backed by a defined runtime member.
 const aRefs = unique([...app.matchAll(/\bA\.([A-Za-z_$][\w$]*)/g)].map(m => m[1]));
-const allowed = new Set(['state', 'sb']);
-
-const apiBlock = app.match(/window\.RachnaAPI\s*=\s*\{([\s\S]*?)\n\s*\};/);
-assert(apiBlock, 'RachnaAPI export block missing');
-const exportText = apiBlock[1];
-const exported = new Set();
-for (const m of exportText.matchAll(/(?:^|,|\n)\s*([A-Za-z_$][\w$]*)\s*(?=,|\n|$)/g)) exported.add(m[1]);
-for (const m of exportText.matchAll(/(?:^|,|\n)\s*([A-Za-z_$][\w$]*)\s*:/g)) exported.add(m[1]);
 const definedFunctions = new Set([...app.matchAll(/\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)].map(m => m[1]));
 const definedConsts = new Set([...app.matchAll(/\bconst\s+([A-Za-z_$][\w$]*)\s*=/g)].map(m => m[1]));
-const missingApi = aRefs.filter(x => !allowed.has(x) && !exported.has(x) && !definedFunctions.has(x) && !definedConsts.has(x));
-assert(missingApi.length === 0, `A.* references not backed by a defined/exported API member: ${missingApi.join(', ')}`);
+const allowed = new Set(['state', 'sb']);
+const missingApi = aRefs.filter(x => !allowed.has(x) && !definedFunctions.has(x) && !definedConsts.has(x));
+assert(missingApi.length === 0, `A.* references not backed by a defined runtime member: ${missingApi.join(', ')}`);
 
 const handlerBlock = app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);
 const routeBlock = app.match(/const routeMap=\{([\s\S]*?)\n\};/);
@@ -33,12 +27,13 @@ const routes = unique([...app.matchAll(/data-route=["']([^"']+)["']/g)].map(m =>
 assert(actions.every(x => handlerKeys.has(x)), `Unwired data-actions: ${actions.filter(x => !handlerKeys.has(x)).join(', ')}`);
 assert(routes.every(x => routeKeys.has(x)), `Unwired data-routes: ${routes.filter(x => !routeKeys.has(x)).join(', ')}`);
 
+// Direct DOM id references used by handlers/views must exist somewhere in generated markup.
 const idsUsed = unique([...app.matchAll(/\$\(['"]#([A-Za-z][A-Za-z0-9_-]*)['"]\)/g)].map(m => m[1]));
 const idsDefined = new Set([...app.matchAll(/\bid=["']([A-Za-z][A-Za-z0-9_-]*)["']/g)].map(m => m[1]));
 const missingIds = idsUsed.filter(x => !idsDefined.has(x) && !html.includes(`id="${x}"`) && !html.includes(`id='${x}'`));
 assert(missingIds.length === 0, `Direct DOM ids referenced but not defined: ${missingIds.join(', ')}`);
 
-// The working external BS date implementation is locked against regression.
+// Lock the now-approved external BS date implementation against regression.
 assert(app.includes('const DATE=window.NepaliFunctions;'), 'External BS date implementation missing');
 assert(app.includes('DATE.BS2AD'), 'External BS->AD conversion missing');
 assert(app.includes('DATE.AD2BS'), 'External AD->BS conversion missing');
