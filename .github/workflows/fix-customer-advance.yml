@@ -1,0 +1,29 @@
+name: Fix customer advance
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch advance flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+          old="""  async function recordAdvance(projectId, amount, method, reference) {\n    const value = n(amount);\n    if (!(value > 0)) throw new Error('Enter a valid advance');\n    const data = await q(sb.rpc('apply_customer_advance', { p_project_id: projectId, p_amount: value, p_method: method || null, p_reference: reference || null }));\n    await refresh();\n    return { booked: Boolean(data.booked), reserve: n(data.vendor_reserve), received: n(data.received), required: n(data.required) };\n  }"""
+          new="""  async function recordAdvance(projectId, amount, method, reference) {\n    const value = n(amount);\n    if (!(value > 0)) throw new Error('Enter a valid advance');\n    if (!projectId) throw new Error('Event is required for a customer advance');\n    const project = state.projects.find((x) => x.id === projectId);\n    if (!project) throw new Error('Event not found');\n    const nextReceived = n(project.customer_advance) + value;\n    const reserve = nextReceived * 0.15;\n    await insert('payments', {\n      project_id: projectId, direction: 'in', party_type: 'customer', party_id: project.customer_id || null,\n      amount: value, payment_date: today(), method: method || null, reference: reference || null, notes: 'Customer advance'\n    });\n    await update('projects', projectId, { customer_advance: nextReceived, vendor_reserve: reserve });\n    const refreshed = state.projects.find((x) => x.id === projectId) || project;\n    return { booked: refreshed.status === 'booked', reserve, received: nextReceived, required: n(refreshed.quoted_total) * 0.30 };\n  }"""
+          if old not in s:
+              raise SystemExit('recordAdvance target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          node --check app.js
+          rm -f .github/workflows/fix-customer-advance.yml
+          git add app.js .github/workflows/fix-customer-advance.yml
+          git commit -m "Fix customer advance recording flow"
+          git push origin HEAD:main
