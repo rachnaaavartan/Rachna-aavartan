@@ -1,0 +1,60 @@
+name: Fix quotation version delete
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[quote-delete-fix]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch quotation deletion into canonical runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+          old="""  async function createQuoteVersionFrom(projectId, sourceId) {\n    const newQuote = await createQuotation(projectId);\n    const items = state.quotationItems.filter((i) => i.quotation_id === sourceId);\n    for (const item of items) {\n      await q(sb.from('quotation_items').insert({ quotation_id: newQuote.id, function_id: item.function_id, service_id: item.service_id, description: item.description, quantity: item.quantity, customer_price: item.customer_price, internal_cost: item.internal_cost }));\n    }\n    await recalc(projectId);\n    return newQuote;\n  }\n"""
+          new=old+"""
+  async function deleteQuotation(id) {\n    if (!id) throw new Error('Quotation ID is required');\n    const qrow = state.quotations.find(q=>q.id===id);\n    if (!qrow) throw new Error('Quotation not found');\n    await q(sb.from('quotations').delete().eq('id',id));\n    await recalc(qrow.project_id);\n    return true;\n  }\n\n  async function deleteQuotationItem(id, projectId) {\n    if (!id) throw new Error('Quotation item ID is required');\n    await q(sb.from('quotation_items').delete().eq('id',id));\n    if (projectId) await recalc(projectId); else await refresh();\n    return true;\n  }\n"""
+          if 'async function deleteQuotation(id)' not in s:
+              if old not in s: raise SystemExit('quotation insertion anchor missing')
+              s=s.replace(old,new,1)
+          s=s.replace('createQuotation, updateQuotation, addQuoteItem, createQuoteVersionFrom, recalc,', 'createQuotation, updateQuotation, addQuoteItem, deleteQuotation, deleteQuotationItem, createQuoteVersionFrom, recalc,',1)
+
+          oldtab="""function quotationTab(p,qs,sv){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">QUOTATION</div><h2>Versions</h2><p>Create and revise quotes without touching booking status.</p></div><button type=\"button\" class=\"btn primary\" data-action=\"new-quote\" data-project=\"${p.id}\">＋ New quote</button></div>${qs.map(q=>`<div class=\"list-card\"><div><b>Version ${esc(q.version||1)}</b><small>${status(q.status)} · ${money(q.customer_total)}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-quote\" data-id=\"${q.id}\">Edit</button><button type=\"button\" class=\"btn tiny\" data-action=\"add-quote-item\" data-id=\"${q.id}\">＋ Item</button></div></div>`).join('')||empty('No quotations')}</section>`}\n"""
+          newtab="""function quotationTab(p,qs,sv){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">QUOTATION</div><h2>Versions</h2><p>Create and revise quotes without touching booking status.</p></div><button type=\"button\" class=\"btn primary\" data-action=\"new-quote\" data-project=\"${p.id}\">＋ New quote</button></div>${qs.map(q=>`<div class=\"list-card\"><div><b>Version ${esc(q.version||1)}</b><small>${status(q.status)} · ${money(q.customer_total)}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-quote\" data-id=\"${q.id}\">Edit</button><button type=\"button\" class=\"btn tiny\" data-action=\"add-quote-item\" data-id=\"${q.id}\">＋ Item</button><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-quote\" data-id=\"${q.id}\">Delete version</button></div></div>`).join('')||empty('No quotations')}</section>`}\n"""
+          if oldtab in s: s=s.replace(oldtab,newtab,1)
+          else: raise SystemExit('quotation tab anchor missing')
+
+          anchor=""" 'save-quote':async({id})=>safe(async()=>{await A.updateQuotation(id,{status:$('#qStatus').value,notes:$('#qNotes').value},ui.project);closeModal();render();toast('Quotation updated')}),\n"""
+          handler=anchor+""" 'delete-quote':async({id})=>{if(!confirm('Delete this quotation version and all its items?'))return;await safe(async()=>{await A.deleteQuotation(id);render();toast('Quotation version deleted')})},\n"""
+          if 'delete-quote': in s: pass
+          elif anchor in s: s=s.replace(anchor,handler,1)
+          else: raise SystemExit('quote handler anchor missing')
+
+          Path('app.js').write_text(s)
+          PY
+          node --check app.js
+          grep -Fq 'async function deleteQuotation(id)' app.js
+          grep -Fq 'data-action=\"delete-quote\"' app.js
+          grep -Fq 'deleteQuotation, deleteQuotationItem' app.js
+          rm -f .github/workflows/fix-quotation-delete.yml
+      - name: Commit
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          git add app.js .github/workflows/fix-quotation-delete.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "[quote-delete-fix] Make quotation version deletion functional"
+          git push origin HEAD:main
