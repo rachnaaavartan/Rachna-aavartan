@@ -1,0 +1,108 @@
+name: One-time runtime cleanup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/repair-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  repair-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove duplicate runtime and install canonical BS logic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          app = Path('app.js').read_text()
+          start_marker = "\n'use strict';\n{\n  'use strict';\n\n  const SUPABASE_URL ="
+          ui_marker = "\n}\n'use strict';\nconst A=window.RachnaAPI;"
+          start = app.find(start_marker)
+          end = app.find(ui_marker, start + 1)
+          if start == -1 or end == -1:
+              raise SystemExit('Duplicate backend block markers not found')
+          app = app[:start] + "\n'use strict';\nconst A=window.RachnaAPI;" + app[end + len(ui_marker):]
+
+          old_date = re.search(r"const todayAD=.*?const parts=v=>\{.*?;\n", app, re.S)
+          if not old_date:
+              raise SystemExit('Date helper block not found')
+          new_date = r'''const NP=window.NepaliDate;
+          if(!A||!NP){document.addEventListener('DOMContentLoaded',()=>{const p=document.getElementById('page');if(p)p.innerHTML='<div class="empty"><b>Rachna OS could not start.</b><span>Required runtime dependency is unavailable. Refresh the page.</span></div>';});return;}
+          const todayAD=()=>{const f=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};f.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`};
+          const fmt2=n=>String(n).padStart(2,'0');
+          const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';
+          const parts=v=>{const m=String(v||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);return m?{year:+m[1],month:+m[2],date:+m[3]}:null};
+          const adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(p.year,p.month-1,p.date);if(d.getYear()!==p.year||d.getMonth()!==p.month-1||d.getDate()!==p.date)throw new Error('Invalid BS date');const ad=d.getAD();return `${ad.year}-${fmt2(ad.month)}-${fmt2(ad.date)}`}catch(_){return''}};
+          const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);const bs=d.getBS();return fmtBs(bs)}catch(_){return''}};
+          const todayBS=()=>bsOfAd(todayAD());
+          const validDays=(y,m)=>{const out=[];for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)out.push(d)}catch(_){}}return out};
+          '''
+          app = app[:old_date.start()] + new_date + app[old_date.end():]
+
+          Path('app.js').write_text(app)
+
+          index = Path('index.html').read_text()
+          index = re.sub(r'\n<script>\s*\(\(\)=>\{\s*const NP=window\.NepaliDate;.*?</script>\n', '\n', index, count=1, flags=re.S)
+          index = re.sub(r'\n<script>\s*\(\(\)=>\{\s*const nativeAdd=document\.addEventListener\.bind\(document\);.*?</script>\n', '\n', index, count=1, flags=re.S)
+          index = re.sub(r'\?v=20260905\.13', '?v=20260905.16', index)
+          index = index.replace("window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.13').catch(()=>{});});", "window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.16').catch(()=>{});});")
+          Path('index.html').write_text(index)
+
+          sw = Path('sw.js').read_text()
+          sw = sw.replace('rachna-os-v20260905-15','rachna-os-v20260905-16').replace('20260905.15','20260905.16')
+          Path('sw.js').write_text(sw)
+          PY
+
+          rm -f .github/workflows/repair-runtime.yml
+
+      - name: Validate cleaned runtime
+        run: |
+          set -e
+          node --check app.js
+          node --check sw.js
+          test -f index.html
+          test -f styles.css
+          ! grep -Fq 'const SUPABASE_URL =' app.js || test "$(grep -Fc 'const SUPABASE_URL =' app.js)" -eq 1
+          ! grep -Fq "const today=()=>" app.js
+          grep -Fq 'const NP=window.NepaliDate;' app.js
+          grep -Fq 'new NP(y,m-1,d)' app.js
+          grep -Fq 'data-bs-year' app.js
+          grep -Fq 'data-bs-month' app.js
+          grep -Fq 'data-bs-day' app.js
+          ! grep -Fq 'DateConverter' index.html
+          ! grep -Fq 'nativeAdd' index.html
+          ! grep -Fq 'type="date"' app.js index.html
+          ! grep -Fq 'backend-clean.js' app.js index.html sw.js
+          ! grep -Fq 'ui.css' app.js index.html sw.js
+          git add app.js index.html sw.js .github/workflows/repair-runtime.yml
+          git config user.name 'rachnaaavartan'
+          git config user.email 'rachna.aavartan@gmail.com'
+          git commit -m 'Clean runtime and fix native BS day picker'
+          git push origin HEAD:main
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
