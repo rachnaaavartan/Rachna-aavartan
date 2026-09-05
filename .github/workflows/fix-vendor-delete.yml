@@ -1,0 +1,40 @@
+name: Fix Vendor Booking Delete
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.event.head_commit.author.name != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch vendor booking delete controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+          old="""function vendorsTab(p,rows,fs){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">VENDORS</div><h2>Vendor bookings</h2></div><button type=\"button\" class=\"btn primary\" data-action=\"new-vendor-booking\" data-project=\"${p.id}\">＋ Add vendor booking</button></div>${rows.map(v=>{const ven=state.vendors.find(x=>x.id===v.vendor_id),paid=Number(v.advance_paid||0)+Number(v.final_paid||0);return `<div class=\"list-card\"><div><b>${esc(ven?.name||'Vendor')}</b><small>${esc(v.requirement||v.category||'Requirement')} · ${money(v.quoted_cost)} cost · ${money(paid)} paid</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"vendor-payment\" data-id=\"${v.id}\">Payment</button><button type=\"button\" class=\"btn tiny\" data-action=\"edit-vendor-booking\" data-id=\"${v.id}\">Edit</button></div></div>`}).join('')||empty('No vendor bookings')}</section>`}"""
+          new="""function vendorsTab(p,rows,fs){return `<section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">VENDORS</div><h2>Vendor bookings</h2></div><button type=\"button\" class=\"btn primary\" data-action=\"new-vendor-booking\" data-project=\"${p.id}\">＋ Add vendor booking</button></div>${rows.map(v=>{const ven=state.vendors.find(x=>x.id===v.vendor_id),paid=Number(v.advance_paid||0)+Number(v.final_paid||0);return `<div class=\"list-card\"><div><b>${esc(ven?.name||'Vendor')}</b><small>${esc(v.requirement||v.category||'Requirement')} · ${money(v.quoted_cost)} cost · ${money(paid)} paid</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"vendor-payment\" data-id=\"${v.id}\">Payment</button><button type=\"button\" class=\"btn tiny\" data-action=\"edit-vendor-booking\" data-id=\"${v.id}\">Edit</button><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-vendor-booking\" data-id=\"${v.id}\">Delete</button></div></div>`}).join('')||empty('No vendor bookings')}</section>`}"""
+          if old not in s:
+              raise SystemExit('vendorsTab target not found')
+          s=s.replace(old,new,1)
+          marker=""" 'edit-vendor-booking':({id})=>{const v=state.vendorBookings.find(x=>x.id===id);if(v)vendorBookingModal(v,v.project_id)},\n"""
+          insert=""" 'edit-vendor-booking':({id})=>{const v=state.vendorBookings.find(x=>x.id===id);if(v)vendorBookingModal(v,v.project_id)},\n 'delete-vendor-booking':async({id})=>{const v=state.vendorBookings.find(x=>x.id===id);if(!v)return;if(!confirm('Delete this vendor booking?'))return;await safe(async()=>{await A.remove('vendor_bookings',id);if(v.project_id)await A.recalc(v.project_id);render();toast('Vendor booking deleted')})},\n"""
+          if marker not in s:
+              raise SystemExit('vendor handler marker not found')
+          s=s.replace(marker,insert,1)
+          p.write_text(s)
+          PY
+          node --check app.js
+          rm -f .github/workflows/fix-vendor-delete.yml
+          git add app.js .github/workflows/fix-vendor-delete.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Add delete action for vendor bookings' || true
+          git push origin HEAD:main
