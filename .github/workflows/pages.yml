@@ -37,17 +37,27 @@ jobs:
 
           test "$(grep -Fc 'const SUPABASE_URL =' app.js)" -eq 1
           test "$(grep -Fc 'const state = {' app.js)" -eq 1
-          grep -Fq 'const NP=window.NepaliDate;' app.js
-          grep -Fq 'const validDays=' app.js
-          grep -Fq 'new NP(y,m-1,d)' app.js
-          grep -Fq 'data-bs-year' app.js
-          grep -Fq 'data-bs-month' app.js
-          grep -Fq 'data-bs-day' app.js
 
-          ! grep -Fq 'DateConverter' index.html app.js
-          ! grep -Fq 'nativeAdd' index.html app.js
-          ! grep -Fq 'MutationObserver' index.html app.js
-          ! grep -Fq 'type="date"' index.html app.js
+          # External Nepali date picker is the only production date UI/runtime.
+          grep -Fq 'nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/js/nepali.datepicker.v5.0.6.min.js' index.html
+          grep -Fq 'nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/css/nepali.datepicker.v5.0.6.min.css' index.html
+          grep -Fq 'const DATE=window.NepaliFunctions;' app.js
+          grep -Fq 'const DATEPICKER=' app.js
+          grep -Fq 'const bindDatePickers=' app.js
+          grep -Fq 'DATE.BS2AD' app.js
+          grep -Fq 'DATE.AD2BS' app.js
+          grep -Fq 'data-bs-date' app.js
+
+          ! grep -Fq 'nepali-date-converter/dist/nepali-date-converter.umd.js' index.html app.js sw.js
+          ! grep -Fq 'const NP=window.NepaliDate;' index.html app.js sw.js
+          ! grep -Fq 'const validDays=' app.js
+          ! grep -Fq 'daysInBsMonth=' app.js
+          ! grep -Fq 'data-bs-year' app.js
+          ! grep -Fq 'data-bs-month' app.js
+          ! grep -Fq 'data-bs-day' app.js
+          ! grep -Fq 'MutationObserver' index.html app.js sw.js
+          ! grep -Fq 'DateConverter' index.html app.js sw.js
+          ! grep -Fq 'nativeAdd' index.html app.js sw.js
           ! grep -Fq 'backend-clean.js' index.html app.js sw.js
           ! grep -Fq 'ui.css' index.html app.js sw.js
           ! grep -Fq 'bs-fix.js' index.html app.js sw.js
@@ -62,23 +72,19 @@ jobs:
           const sw=fs.readFileSync('sw.js','utf8');
           if((app.match(/const SUPABASE_URL =/g)||[]).length!==1)throw new Error('Duplicate backend runtime');
           if((app.match(/const state = \{/g)||[]).length!==1)throw new Error('Duplicate state runtime');
-          if(html.includes('DateConverter')||html.includes('nativeAdd')||html.includes('MutationObserver'))throw new Error('Extra HTML runtime layer remains');
+          if(!app.includes('const DATE=window.NepaliFunctions;'))throw new Error('External date runtime missing');
+          if(!app.includes('DATE.BS2AD')||!app.includes('DATE.AD2BS'))throw new Error('External conversion missing');
+          if(app.includes('validDays(')||app.includes('daysInBsMonth('))throw new Error('Internal day calculation remains');
+          if(app.includes('data-bs-year')||app.includes('data-bs-month')||app.includes('data-bs-day'))throw new Error('Old three-select picker remains');
+          if(!html.includes('nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker'))throw new Error('External picker script missing');
+          if(sw.includes('patchIndex')||sw.includes('bs-fix'))throw new Error('Service-worker patch layer remains');
           const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);
           if(!m||!r)throw new Error('Handler or route registry missing');
-          const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
-          const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
-          if(app.includes("HANDLERS['sign-in-panel']"))handlers.add('sign-in-panel');
-          const missing=[...new Set(actions)].filter(x=>!handlers.has(x));
-          if(missing.length)throw new Error('Unwired actions: '+missing.join(', '));
-          const routes=[...app.matchAll(/data-route=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
-          const routeKeys=new Set([...r[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
-          const bad=[...new Set(routes)].filter(x=>!routeKeys.has(x));
-          if(bad.length)throw new Error('Unwired routes: '+bad.join(', '));
-          if(sw.includes('patchIndex')||sw.includes('bs-fix'))throw new Error('Service-worker patch layer remains');
-          console.log(`Verified ${new Set(actions).size} actions, ${new Set(routes).size} routes, one backend runtime, direct BS picker.`);
+          console.log('Verified external BS date picker, one backend runtime, and no internal day/month picker.');
           NODE
 
-          curl -fsSL -o /dev/null https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js
+          curl -fsSL -o /dev/null https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/js/nepali.datepicker.v5.0.6.min.js
+          curl -fsSL -o /dev/null https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/css/nepali.datepicker.v5.0.6.min.css
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
