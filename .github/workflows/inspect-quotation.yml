@@ -1,0 +1,14 @@
+name: Inspect quotation implementation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print quotation sections
+        run: |
+          set -e
+          grep -n -E 'function .*Quote|function .*quote|quotation|quote-item|quoteItem|save-quotation|add-quote|create-quotation' app.js | head -n 120 || true
