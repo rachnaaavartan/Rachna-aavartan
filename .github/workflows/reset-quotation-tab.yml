@@ -1,0 +1,141 @@
+name: Reset quotation tab
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  reset:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[quotation-tab-reset]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild canonical quotation tab and database delete RPC
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Replace the quotation renderer in the canonical app runtime.
+          p = Path('app.js')
+          s = p.read_text()
+
+          # Add API functions immediately before quotation creation.
+          anchor = "  async function createQuotation(projectId) {"
+          funcs = r'''  async function deleteQuotation(id) {
+    if (!id) throw new Error('Quotation version ID is required');
+    const qrow = state.quotations.find(q => q.id === id);
+    if (!qrow) throw new Error('Quotation version not found');
+    await q(sb.rpc('delete_quotation_version', { p_quotation_id: id }));
+    await recalc(qrow.project_id);
+    return true;
+  }
+
+  async function deleteQuotationItem(id) {
+    if (!id) throw new Error('Quotation item ID is required');
+    const item = state.quotationItems.find(x => x.id === id);
+    await q(sb.from('quotation_items').delete().eq('id', id));
+    if (item) {
+      const qrow = state.quotations.find(q => q.id === item.quotation_id);
+      if (qrow) await recalc(qrow.project_id);
+      else await refresh();
+    } else await refresh();
+    return true;
+  }
+
+'''
+          if 'async function deleteQuotation(id)' not in s:
+              if anchor not in s: raise SystemExit('quotation anchor missing')
+              s = s.replace(anchor, funcs + anchor, 1)
+
+          # Keep createQuotation package-aware.
+          old = """  async function createQuotation(projectId) {\n    const version = state.quotations.filter((q) => q.project_id === projectId).reduce((max, q) => Math.max(max, n(q.version)), 0) + 1;\n    return insert('quotations', { project_id: projectId, version, status: 'draft', customer_total: 0, internal_total: 0, notes: null });\n  }"""
+          new = """  async function createQuotation(projectId, options = {}) {\n    const version = state.quotations.filter((q) => q.project_id === projectId).reduce((max, q) => Math.max(max, n(q.version)), 0) + 1;\n    return insert('quotations', { project_id: projectId, version, status: options.status || 'draft', customer_total: n(options.customer_total), internal_total: 0, notes: options.notes || null });\n  }"""
+          if old in s: s = s.replace(old, new, 1)
+
+          # Replace the old quotationTab with a clean package-first renderer.
+          pat = re.compile(r"function quotationTab\(p,qs,sv\)\{.*?\}", re.S)
+          m = pat.search(s)
+          if not m: raise SystemExit('quotationTab function not found')
+          new_tab = r'''function quotationTab(p,qs,sv){
+    const rows = qs.map(q => {
+      const items = state.quotationItems.filter(i => i.quotation_id === q.id);
+      return `<section class="panel quotation-version" data-quote-id="${esc(q.id)}">
+        <div class="section-head"><div><div class="eyebrow">QUOTATION VERSION</div><h2>Version ${esc(q.version||1)}</h2><p>${esc(STATUS[q.status]||q.status||'Draft')} · Package price <b>${money(q.customer_total)}</b></p></div>
+          <div class="row-actions"><button type="button" class="btn tiny" data-action="edit-quote" data-id="${esc(q.id)}">Edit package</button><button type="button" class="btn tiny danger" data-action="delete-quote" data-id="${esc(q.id)}">Delete version</button></div>
+        </div>
+        <div class="notice">Package price is the quotation total. Individual item prices are optional and do not change the package total.</div>
+        <div class="section-head"><div><div class="eyebrow">PACKAGE ITEMS</div><h3>Included items</h3></div><button type="button" class="btn" data-action="add-quote-item" data-id="${esc(q.id)}">＋ Add item</button></div>
+        <div class="stack">${items.map(i=>`<div class="mini-row" data-item-id="${esc(i.id)}"><div><b>${esc(i.description)}</b><small>Qty ${esc(i.quantity||1)} · ${i.customer_price==null?'Included in package':money(i.customer_price)} · Internal ${money(i.internal_cost)}</small></div><button type="button" class="btn tiny danger" data-action="delete-quote-item" data-id="${esc(i.id)}">Delete item</button></div>`).join('') || empty('No items','Add the services/items included in this package.')}</div>
+      </section>`;
+    }).join('');
+    return `<section><div class="panel"><div class="section-head"><div><div class="eyebrow">QUOTATION</div><h2>Package quotations</h2><p>Create multiple versions. Each version has its own package price and can be deleted independently.</p></div><button type="button" class="btn primary" data-action="new-quote" data-project="${p.id}">＋ New quotation</button></div></div>${rows || empty('No quotations','Create your first package quotation.')}</section>`;
+  }'''
+          s = s[:m.start()] + new_tab + s[m.end():]
+
+          # Replace quotation handlers with clean canonical handlers.
+          def replace_handler(name, replacement):
+              nonlocal s
+              rx = re.compile(r"\n\s*'" + re.escape(name) + r"':.*?,(?=\n\s*'[^']+':|\n\s*\};)", re.S)
+              mm = rx.search(s)
+              if not mm: raise SystemExit(f'handler {name} not found')
+              s = s[:mm.start()] + '\n ' + replacement + s[mm.end():]
+
+          replace_handler('new-quote', "'new-quote':({project})=>{const pid=project||ui.project;modal('New quotation',`<div class=\"form-grid\">${field('Package price (NPR)','newQPackage','number','', 'required min=\"1\"')}${textarea('Notes','newQNotes','')}</div><p class=\"notice\">Package price is required. Individual item prices are optional.</p>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-new-quote\" data-project=\"${pid}\">Create quotation</button>`)},")
+          replace_handler('edit-quote', "'edit-quote':({id})=>{const q=state.quotations.find(x=>x.id===id);if(!q)return;modal('Edit quotation',`<div class=\"form-grid\">${field('Package price (NPR)','qPackage','number',q.customer_total||'', 'required min=\"1\"')}${select('Status','qStatus',[['draft','Draft'],['sent','Sent'],['accepted','Accepted'],['rejected','Rejected']],q.status||'draft')}${textarea('Notes','qNotes',q.notes||'')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote\" data-id=\"${id}\">Save quotation</button>` )},")
+          replace_handler('save-quote', "'save-quote':async({id})=>safe(async()=>{const packagePrice=Number($('#qPackage').value||0);if(!(packagePrice>0)){toast('Package price is required.',true);return}await A.updateQuotation(id,{customer_total:packagePrice,status:$('#qStatus').value,notes:$('#qNotes').value},ui.project);closeModal();render();toast('Quotation updated')}),")
+          replace_handler('delete-quote', "'delete-quote':async({id})=>{if(!confirm('Delete this quotation version and all its items?'))return;await safe(async()=>{await A.deleteQuotation(id);render();toast('Quotation version deleted')})},")
+          replace_handler('add-quote-item', "'add-quote-item':({id})=>modal('Add quotation item',field('Description','qiDescription','text','')+field('Quantity','qiQty','number','1')+field('Individual customer price (NPR) — optional','qiPrice','number','')+field('Internal cost (NPR)','qiCost','number','0'),`<button type=\"button\" class=\"btn primary\" data-action=\"save-quote-item\" data-id=\"${id}\">Add item</button>`),")
+          replace_handler('save-quote-item', "'save-quote-item':async({id})=>safe(async()=>{const desc=$('#qiDescription').value.trim();if(!desc){toast('Item description is required.',true);return}const price=$('#qiPrice').value.trim();await A.addQuoteItem(id,{description:desc,quantity:Number($('#qiQty').value||1),customer_price:price===''?null:Number(price),internal_cost:Number($('#qiCost').value||0)});closeModal();render();toast('Quotation item added')}),")
+          # Add save-new-quote handler before new-vendor-booking.
+          marker = " 'new-vendor-booking':"
+          s = s.replace(marker, " 'save-new-quote':async({project})=>safe(async()=>{const packagePrice=Number($('#newQPackage').value||0);if(!(packagePrice>0)){toast('Package price is required.',true);return}await A.createQuotation(project||ui.project,{customer_total:packagePrice,notes:$('#newQNotes').value});closeModal();render();toast('Quotation created')}),\n 'new-vendor-booking':", 1)
+          # Ensure item delete handler exists.
+          if "'delete-quote-item':" not in s:
+              marker = " 'new-vendor-booking':"
+              s = s.replace(marker, " 'delete-quote-item':async({id})=>{if(!confirm('Delete this quotation item?'))return;await safe(async()=>{await A.deleteQuotationItem(id);render();toast('Quotation item deleted')})},\n 'new-vendor-booking':", 1)
+
+          s = s.replace('createQuotation, updateQuotation, addQuoteItem, createQuoteVersionFrom, recalc,', 'createQuotation, updateQuotation, addQuoteItem, deleteQuotation, deleteQuotationItem, createQuoteVersionFrom, recalc,', 1)
+          p.write_text(s)
+          PY
+          node --check app.js
+          grep -Fq 'async function deleteQuotation(id)' app.js
+          grep -Fq 'async function deleteQuotationItem(id)' app.js
+          grep -Fq 'data-action="delete-quote"' app.js
+          grep -Fq 'data-action="delete-quote-item"' app.js
+
+      - name: Remove quotation tab extensions and update cache version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text()
+          # Remove any old quotation enhancement scripts between known comment and next script.
+          s=re.sub(r'\n<script>\n/\* Quotation UX extension\..*?</script>', '', s, flags=re.S)
+          s=s.replace('20260905.41','20260905.42')
+          s=s.replace("app.js?v=20260905.41","app.js?v=20260905.42")
+          s=s.replace("sw.js?v=20260905.41","sw.js?v=20260905.42")
+          p.write_text(s)
+          PY
+          node --check app.js
+          grep -Fq 'app.js?v=20260905.42' index.html
+          ! grep -Fq 'Quotation UX extension' index.html
+
+      - name: Commit and clean up
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          rm -f .github/workflows/reset-quotation-tab.yml
+          git add app.js index.html .github/workflows/reset-quotation-tab.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "[quotation-tab-reset] Rebuild quotation tab"
+          git push origin HEAD:main
