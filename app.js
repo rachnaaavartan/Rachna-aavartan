@@ -80,6 +80,19 @@
     return state;
   }
 
+  let realtimeStarted=false;
+  function startRealtime() {
+    if (realtimeStarted || !state.user) return;
+    realtimeStarted=true;
+    const tables=['payments','project_expenses','quotations','quotation_items','projects','inquiries','vendor_bookings','project_services','project_team','production_costs','event_files','reminders','event_functions'];
+    for (const table of tables) {
+      sb.channel(`ros-${table}`).on('postgres_changes',{event:'*',schema:'public',table},async()=>{
+        try { await refresh(); if(state.projects.length){ const ids=[...new Set(state.projects.map(p=>p.id))]; for(const id of ids){ try{await syncCustomerAdvance(id)}catch(_){}} await refresh(); }
+        } catch(_) {}
+      }).subscribe();
+    }
+  }
+
   async function init() {
     const { data, error } = await sb.auth.getSession();
     if (error) throw error;
@@ -88,6 +101,7 @@
     if (state.user) {
       await loadProfile();
       await refresh();
+      startRealtime();
     }
     return state;
   }
@@ -141,7 +155,12 @@
 
   async function remove(table, id) {
     if (!id) throw new Error('Record ID is required');
+    let current=null;
+    if(table==='payments') current=state.payments.find(x=>x.id===id);
     await q(sb.from(table).delete().eq('id', id));
+    if(table==='payments' && current?.project_id) await syncCustomerAdvance(current.project_id);
+    await refresh();
+    if(current?.project_id) await q(sb.rpc('refresh_project_financials',{p_project_id:current.project_id}));
     await refresh();
     return true;
   }
@@ -324,12 +343,21 @@
     return out;
   }
 
+  async function syncCustomerAdvance(projectId) {
+    if (!projectId) return;
+    const rows = await q(sb.from('payments').select('amount').eq('project_id',projectId).eq('direction','in').eq('party_type','customer').eq('notes','Customer advance'));
+    const total=(rows||[]).reduce((a,x)=>a+n(x.amount),0);
+    await q(sb.from('projects').update({customer_advance:total,vendor_reserve:total*0.15}).eq('id',projectId));
+  }
+
   async function recordAdvance(projectId, amount, method, reference) {
     const value = n(amount);
     if (!(value > 0)) throw new Error('Enter a valid advance');
-    const data = await q(sb.rpc('apply_customer_advance', { p_project_id: projectId, p_amount: value, p_method: method || null, p_reference: reference || null }));
-    await refresh();
-    return { booked: Boolean(data.booked), reserve: n(data.vendor_reserve), received: n(data.received), required: n(data.required) };
+    if (!projectId) throw new Error('Event is required for a customer advance');
+    const data = await q(sb.from('payments').insert({project_id:projectId,direction:'in',party_type:'customer',amount:value,payment_date:today(),method:method||null,reference:reference||null,notes:'Customer advance'}).select().single());
+    await syncCustomerAdvance(projectId);
+    await recalc(projectId);
+    return { booked:true, reserve:value*0.15, received:value };
   }
 
   async function createQuotation(projectId) {
@@ -365,6 +393,7 @@
 
   async function recalc(projectId) {
     if (!projectId) return;
+    await syncCustomerAdvance(projectId);
     await q(sb.rpc('refresh_project_financials', { p_project_id: projectId }));
     await refresh();
   }
