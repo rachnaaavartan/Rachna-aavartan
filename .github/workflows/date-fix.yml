@@ -11,42 +11,73 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply exact BS date fixes
+      - name: Apply canonical BS date and auth fixes
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('app.js')
-          s=p.read_text()
-          old=s
-          s=s.replace(
-            "const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';",
-            "const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';"
-          )
-          s=s.replace(
-            "if(!b||+b.year!==p.year||+b.month!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');",
-            "if(!b||+b.year!==p.year||+b.month+1!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');"
-          )
-          s=s.replace(
-            "const daysInBsMonth=(y,m)=>{try{const x=new NP(y,m-1,32);return x.getMonth()===m-1?32:Math.max(0,x.getDate()-1)}catch(_){return 0}};",
-            "const daysInBsMonth=(y,m)=>{try{let count=0;for(let d=1;d<=32;d++){const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)count=d}return count}catch(_){return 0}};"
-          )
-          s=s.replace(
-            "const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);const b=d.getBS();return b?`${b.year}-${fmt2(b.month)}-${fmt2(b.date)}`:''}catch(_){return''}};",
-            "const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(p.year,p.month-1,p.date);const d=new NP(js);const b=d.getBS();return b?`${b.year}-${fmt2(+b.month+1)}-${fmt2(b.date)}`:''}catch(_){return''}};"
-          )
-          if s==old: raise SystemExit('No date fixes matched')
+          p = Path('app.js')
+          s = p.read_text()
+
+          old_fmt = "const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';"
+          new_fmt = "const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';"
+          s = s.replace(old_fmt, new_fmt, 1)
+
+          old_check = "if(!b||+b.year!==p.year||+b.month!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');"
+          new_check = "if(!b||+b.year!==p.year||+b.month+1!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');"
+          s = s.replace(old_check, new_check, 1)
+
+          old_days = "const daysInBsMonth=(y,m)=>{let last=0;for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)last=d;else break}catch(_){break}}return last};"
+          new_days = "const daysInBsMonth=(y,m)=>{let count=0;for(let d=1;d<=32;d++){try{const x=new NP(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const b=x.getBS();if(+b.year===y&&+b.month+1===m&&+b.date===d)count=d;else break}catch(_){break}}return count};"
+          s = s.replace(old_days, new_days, 1)
+
+          old_init = "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{bindGlobal();boot()},{once:true});else{bindGlobal();boot()}"
+          new_init = "const start=async()=>{bindGlobal();try{await A.init()}catch(e){A.state.error=e}await boot()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();"
+          if old_init not in s:
+              raise SystemExit('startup block not found')
+          s = s.replace(old_init, new_init, 1)
+
           p.write_text(s)
+
+          # Remove the duplicate startup/session repair from index.html. Keep only service-worker registration.
+          q = Path('index.html')
+          h = q.read_text()
+          start_marker = "<script>\nwindow.addEventListener('DOMContentLoaded', async () => {"
+          a = h.find(start_marker)
+          if a < 0:
+              raise SystemExit('duplicate index startup block not found')
+          b = h.find("window.addEventListener('load',", a)
+          if b < 0:
+              raise SystemExit('service worker block not found')
+          h = h[:a] + "<script>\n" + h[b:]
+          q.write_text(h)
+
+          # Bust the previous cached app.
           for name in ('index.html','sw.js'):
-            p=Path(name); x=p.read_text().replace('20260905.22','20260905.23').replace('rachna-os-v20260905-22','rachna-os-v20260905-23'); p.write_text(x)
+              q = Path(name)
+              t = q.read_text().replace('20260905.24','20260905.25').replace('rachna-os-v20260905-24','rachna-os-v20260905-25')
+              q.write_text(t)
           PY
+
           node --check app.js
           node --check sw.js
-          grep -Fq 'fmt2(+o.month+1)' app.js
-          grep -Fq '+b.month+1!==p.month' app.js
-          grep -Fq 'const daysInBsMonth=' app.js
-          git rm .github/workflows/date-fix.yml
-          git add app.js index.html sw.js
-          git commit -m '[bs-date-fix] Fix BS month indexing and day calculation'
+          grep -Fq "const daysInBsMonth=(y,m)=>{let count=0;" app.js
+          grep -Fq "`${o.year}-${fmt2(+o.month+1)}-" app.js
+          grep -Fq "const start=async()=>{bindGlobal();try{await A.init()}" app.js
+          ! grep -Fq "window.addEventListener('DOMContentLoaded', async () =>" index.html
+          ! grep -Fq "Math.max(0,x.getDate()-1)" app.js
+
+      - name: Commit final source and remove repair workflow
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/date-fix.yml
+          git add app.js index.html sw.js .github/workflows/date-fix.yml
+          git commit -m "[bs-date-fix] Fix BS picker and session startup"
           git push origin HEAD:main
