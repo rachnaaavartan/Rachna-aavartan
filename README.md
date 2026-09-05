@@ -8,3 +8,5 @@ Production architecture:
 - `supabase/schema.sql` — database source
 
 Legacy patch files are not part of production.
+
+Date picker: BS year/month/day selection uses the canonical Nepali calendar configuration.
