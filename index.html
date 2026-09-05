@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.11">
-<link rel="stylesheet" href="styles.css?v=20260905.11">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.12">
+<link rel="stylesheet" href="styles.css?v=20260905.12">
 </head>
 <body>
 <div class="app">
@@ -37,11 +37,8 @@
   const NP = window.NepaliDate;
   if (!NP) return;
 
-  // Use the library's validated string parser for BS days. The numeric constructor
-  // intentionally normalizes overflow days, which can make a dropdown appear empty.
   class RachnaDateConverter {
     constructor(value) { this.value = value; }
-
     toAd() {
       const match = String(this.value ?? '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (!match) throw new Error('Invalid BS date');
@@ -55,7 +52,6 @@
       const ad = d.getAD();
       return { year: ad.year, month: ad.month, date: ad.date };
     }
-
     toBs() {
       const match = String(this.value ?? '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (!match) throw new Error('Invalid AD date');
@@ -68,21 +64,16 @@
       return { year: bs.year, month: bs.month, date: bs.date };
     }
   }
-
   window.DateConverter = RachnaDateConverter;
 })();
 </script>
 <script>
-// Gate DOM boot behind Supabase session restoration so authenticated users do not
-// briefly see the sign-in panel during page startup.
 (() => {
   const nativeAdd = document.addEventListener.bind(document);
   document.addEventListener = (type, listener, options) => {
     if (type === 'DOMContentLoaded' && typeof listener === 'function') {
       const gated = async (event) => {
-        try {
-          if (window.RachnaAPI?.init) await window.RachnaAPI.init();
-        } catch (_) {}
+        try { if (window.RachnaAPI?.init) await window.RachnaAPI.init(); } catch (_) {}
         return listener(event);
       };
       return nativeAdd(type, gated, options);
@@ -91,9 +82,68 @@
   };
 })();
 </script>
-<script src="app.js?v=20260905.10"></script>
+<script src="app.js?v=20260905.12"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.11').catch(()=>{});});
+(() => {
+  const NP = window.NepaliDate;
+  if (!NP) return;
+
+  const fillDays = (box) => {
+    const year = box.querySelector('[data-bs-year]');
+    const month = box.querySelector('[data-bs-month]');
+    const day = box.querySelector('[data-bs-day]');
+    const hidden = box.querySelector('[data-bs-value]');
+    if (!year || !month || !day || !hidden) return;
+    const y = Number(year.value);
+    const m = Number(month.value);
+    if (!y || !m) return;
+
+    const current = Number(day.value) || 0;
+    const valid = [];
+    for (let d = 1; d <= 32; d++) {
+      try {
+        const np = new NP(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+        const bs = np.getBS();
+        if (bs.year === y && bs.month === m && bs.date === d) valid.push(d);
+      } catch (_) {}
+    }
+
+    const expected = '<option value="">Day</option>' + valid.map(d => `<option value="${d}"${d === current ? ' selected' : ''}>${d}</option>`).join('');
+    if (day.innerHTML !== expected) day.innerHTML = expected;
+
+    const selected = Number(day.value);
+    hidden.value = selected && valid.includes(selected)
+      ? `${y}-${String(m).padStart(2,'0')}-${String(selected).padStart(2,'0')}`
+      : '';
+  };
+
+  const repair = (root = document) => root.querySelectorAll('.bs-picker').forEach(box => fillDays(box));
+  const bootRepair = () => {
+    repair(document);
+    document.addEventListener('change', e => {
+      if (e.target.matches('[data-bs-year],[data-bs-month],[data-bs-day]')) {
+        const box = e.target.closest('.bs-picker');
+        if (box) fillDays(box);
+      }
+    }, true);
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        if (mutation.type !== 'childList') continue;
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches?.('.bs-picker')) fillDays(node);
+          node.querySelectorAll?.('.bs-picker').forEach(fillDays);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootRepair, { once: true });
+  else bootRepair();
+})();
+</script>
+<script>
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.12').catch(()=>{});});
 </script>
 </body>
 </html>
