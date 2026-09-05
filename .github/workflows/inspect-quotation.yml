@@ -1,14 +1,21 @@
 name: Inspect quotation implementation
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: read
 jobs:
   inspect:
+    if: ${{ !contains(github.event.head_commit.message, '[quote-inspect]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Print quotation sections
         run: |
           set -e
-          grep -n -E 'function .*Quote|function .*quote|quotation|quote-item|quoteItem|save-quotation|add-quote|create-quotation' app.js | head -n 120 || true
+          echo '--- FUNCTIONS ---'
+          grep -n -E 'function [A-Za-z0-9_]*(Quote|quote|Quotation|quotation)' app.js | head -n 80 || true
+          echo '--- ACTION REFERENCES ---'
+          grep -n -E 'data-action=.?(add|save|edit|delete|remove)[^" ]*quote|data-action=.?.*quotation' app.js | head -n 120 || true
+          echo '--- LABELS ---'
+          grep -n -E 'Quotation|quotation|Customer price|customer_price|package' app.js | head -n 160 || true
