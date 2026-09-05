@@ -1,0 +1,54 @@
+name: Wire quotation deletion RPC
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[quote-delete-rpc]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch canonical quotation deletion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('app.js')
+          s=p.read_text()
+          if 'async function deleteQuotation(id)' not in s:
+              marker='  async function createQuoteVersionFrom(projectId, sourceId) {'
+              idx=s.find(marker)
+              if idx<0: raise SystemExit('createQuoteVersionFrom anchor missing')
+              end=s.find('\n  }', idx)
+              if end<0: raise SystemExit('createQuoteVersionFrom end missing')
+              end += len('\n  }')
+              fn="""
+
+  async function deleteQuotation(id) {
+    if (!id) throw new Error('Quotation ID is required');
+    const qrow = state.quotations.find(q => q.id === id);
+    if (!qrow) throw new Error('Quotation not found');
+    await q(sb.rpc('delete_quotation_version', { p_quotation_id: id }));
+    await refresh();
+    return true;
+  }
+"""
+              s=s[:end]+fn+s[end:]
+          if 'deleteQuotation,' not in s:
+              s=s.replace('createQuotation, updateQuotation, addQuoteItem, createQuoteVersionFrom, recalc,', 'createQuotation, updateQuotation, addQuoteItem, deleteQuotation, createQuoteVersionFrom, recalc,', 1)
+          p.write_text(s)
+          PY
+          node --check app.js
+          grep -Fq 'async function deleteQuotation(id)' app.js
+          grep -Fq "sb.rpc('delete_quotation_version'" app.js
+          grep -Fq 'deleteQuotation,' app.js
+          rm -f .github/workflows/fix-quotation-delete-rpc.yml
+          git add app.js .github/workflows/fix-quotation-delete-rpc.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "[quote-delete-rpc] Wire quotation version deletion to Supabase RPC"
+          git push origin HEAD:main
