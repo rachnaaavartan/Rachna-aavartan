@@ -1,0 +1,132 @@
+name: One-time transaction controls repair
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[tx-fix]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch transaction controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p=Path('app.js')
+          s=p.read_text()
+
+          old_record="""  async function recordPayment(x) {
+    const amount = n(x.amount);
+    if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+    return insert('payments', {
+      project_id: x.project_id || null, direction: x.direction, party_type: x.party_type || 'other',
+      party_id: x.party_id || null, amount, payment_date: x.payment_date || today(), method: x.method || null,
+      reference: x.reference || null, notes: x.notes || null
+    });
+  }
+"""
+          new_record="""  async function recordPayment(x) {
+    const amount = n(x.amount);
+    if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+    return insert('payments', {
+      project_id: x.project_id || null, direction: x.direction, party_type: x.party_type || (x.direction === 'in' ? 'customer' : 'other'),
+      party_id: x.party_id || null, amount, payment_date: x.payment_date || today(), method: x.method || null,
+      reference: x.reference || null, notes: x.notes || null
+    });
+  }
+
+  async function updatePayment(id,row) {
+    if (!id) throw new Error('Payment ID is required');
+    const current = state.payments.find(x=>x.id===id);
+    await q(sb.from('payments').update(row).eq('id',id));
+    if (current?.project_id && current.notes === 'Customer advance') {
+      const rows = await q(sb.from('payments').select('amount').eq('project_id',current.project_id).eq('party_type','customer').eq('direction','in').eq('notes','Customer advance'));
+      const total = (rows||[]).reduce((a,x)=>a+n(x.amount),0);
+      await q(sb.from('projects').update({customer_advance:total,vendor_reserve:total*0.15}).eq('id',current.project_id));
+    }
+    if (current?.project_id) await q(sb.rpc('refresh_project_financials',{p_project_id:current.project_id}));
+    await refresh();
+    return true;
+  }
+
+  async function deletePayment(id) {
+    if (!id) throw new Error('Payment ID is required');
+    const current = state.payments.find(x=>x.id===id);
+    if (!current) throw new Error('Payment not found');
+    await q(sb.from('payments').delete().eq('id',id));
+    if (current.project_id && current.notes === 'Customer advance') {
+      const rows = await q(sb.from('payments').select('amount').eq('project_id',current.project_id).eq('party_type','customer').eq('direction','in').eq('notes','Customer advance'));
+      const total = (rows||[]).reduce((a,x)=>a+n(x.amount),0);
+      await q(sb.from('projects').update({customer_advance:total,vendor_reserve:total*0.15}).eq('id',current.project_id));
+    }
+    if (current.project_id) await q(sb.rpc('refresh_project_financials',{p_project_id:current.project_id}));
+    await refresh();
+    return true;
+  }
+"""
+          if old_record not in s: raise SystemExit('recordPayment target missing')
+          s=s.replace(old_record,new_record,1)
+          s=s.replace("recordPayment, recordExpense, recordAdvance,", "recordPayment, updatePayment, deletePayment, recordExpense, recordAdvance,",1)
+
+          old_payment="""function paymentModal(projectId){modal('Record payment',`<div class=\"form-grid\">${select('Direction','payDirection',[['in','Customer received'],['out','Paid out']], 'in')}${field('Amount (NPR)','payAmount','number','')}${select('Method','payMethod',METHODS,'Cash')}${dateField('Payment date (BS)','payDate',todayBS())}${field('Reference','payRef','text','')}${textarea('Notes','payNotes','')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-payment\" data-project=\"${projectId||''}\">Save payment</button>`)}
+"""
+          new_payment="""function paymentModal(projectId,item){modal(item?'Edit payment':'Record payment',`<div class=\"form-grid\">${select('Direction','payDirection',[['in','Customer received'],['out','Paid out']], item?.direction||'in')}${field('Amount (NPR)','payAmount','number',item?.amount||'')}${select('Method','payMethod',METHODS,item?.method||'Cash')}${dateField('Payment date (BS)','payDate',item?.payment_date?bsOfAd(item.payment_date):todayBS())}${field('Reference','payRef','text',item?.reference||'')}${textarea('Notes','payNotes',item?.notes||'')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-payment\" data-id=\"${item?.id||''}\" data-project=\"${projectId||item?.project_id||''}\">Save payment</button>`)}
+"""
+          if old_payment not in s: raise SystemExit('paymentModal target missing')
+          s=s.replace(old_payment,new_payment,1)
+
+          old_expense="""function expenseModal(projectId){modal('Record expense',`<div class=\"form-grid\">${select('Category','expCategory',['Vendor','Crew','Transport','Editing','Equipment','Marketing','Office','Other'],'Other')}${field('Amount (NPR)','expAmount','number','')}${select('Method','expMethod',METHODS,'Cash')}${dateField('Expense date (BS)','expDate',todayBS())}${field('Description','expDescription','text','Expense')}${textarea('Notes','expNotes','')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-expense\" data-project=\"${projectId||''}\">Save expense</button>`)}
+"""
+          new_expense="""function expenseModal(projectId,item){modal(item?'Edit expense':'Record expense',`<div class=\"form-grid\">${select('Category','expCategory',['Vendor','Crew','Transport','Editing','Equipment','Marketing','Office','Other'],item?.category||'Other')}${field('Amount (NPR)','expAmount','number',item?.amount||'')}${select('Method','expMethod',METHODS,item?.method||'Cash')}${dateField('Expense date (BS)','expDate',item?.expense_date?bsOfAd(item.expense_date):todayBS())}${field('Description','expDescription','text',item?.description||'Expense')}${textarea('Notes','expNotes',item?.notes||'')}</div>`,`<button type=\"button\" class=\"btn primary\" data-action=\"save-expense\" data-id=\"${item?.id||''}\" data-project=\"${projectId||item?.project_id||''}\">Save expense</button>`)}
+"""
+          if old_expense not in s: raise SystemExit('expenseModal target missing')
+          s=s.replace(old_expense,new_expense,1)
+
+          old_project_money="""function projectMoneyTab(p,pay){const balance=Math.max(0,Number(p.quoted_total||0)-Number(p.customer_advance||0));return `<div class=\"metrics\">${metric('Quoted',money(p.quoted_total),'Latest financial total')}${metric('Advance',money(p.customer_advance),'Customer received')}${metric('Balance',money(balance),'Remaining')}${metric('Status',STATUS[p.status]||p.status,'Manual Event ID status')}</div><section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">BOOKING + CASH</div><h2>Financial controls</h2></div><div class=\"row-actions\"><button type=\"button\" class=\"btn primary\" data-action=\"new-advance\" data-project=\"${p.id}\">＋ Record advance</button><button type=\"button\" class=\"btn\" data-action=\"new-payment\" data-project=\"${p.id}\">＋ Payment</button><button type=\"button\" class=\"btn\" data-action=\"new-expense\" data-project=\"${p.id}\">＋ Expense</button></div></div>${select('Event status','projectStatus',PROJECT_STATUS,p.status)}<button type=\"button\" class=\"btn primary\" data-action=\"save-project-status\" data-project=\"${p.id}\">Save status</button></section><section class=\"panel\"><h2>Event transactions</h2>${pay.map(x=>`<div class=\"mini-row\"><div><b>${esc(x.direction==='in'?'Received':'Paid')} · ${money(x.amount)}</b><small>${esc(x.method||'Method TBC')} · ${esc(bsOfAd(x.payment_date||'')||'Date TBC')}</small></div></div>`).join('')||empty('No transactions')}</section>`}
+"""
+          new_project_money="""function projectMoneyTab(p,pay){const balance=Math.max(0,Number(p.quoted_total||0)-Number(p.customer_advance||0));return `<div class=\"metrics\">${metric('Quoted',money(p.quoted_total),'Latest financial total')}${metric('Advance',money(p.customer_advance),'Customer received')}${metric('Balance',money(balance),'Remaining')}${metric('Status',STATUS[p.status]||p.status,'Manual Event ID status')}</div><section class=\"panel\"><div class=\"section-head\"><div><div class=\"eyebrow\">BOOKING + CASH</div><h2>Financial controls</h2></div><div class=\"row-actions\"><button type=\"button\" class=\"btn primary\" data-action=\"new-advance\" data-project=\"${p.id}\">＋ Record advance</button><button type=\"button\" class=\"btn\" data-action=\"new-payment\" data-project=\"${p.id}\">＋ Payment</button><button type=\"button\" class=\"btn\" data-action=\"new-expense\" data-project=\"${p.id}\">＋ Expense</button></div></div>${select('Event status','projectStatus',PROJECT_STATUS,p.status)}<button type=\"button\" class=\"btn primary\" data-action=\"save-project-status\" data-project=\"${p.id}\">Save status</button></section><section class=\"panel\"><h2>Event transactions</h2>${pay.map(x=>`<div class=\"mini-row\"><div><b>${esc(x.direction==='in'?'Received':'Paid')} · ${money(x.amount)}</b><small>${esc(x.method||'Method TBC')} · ${esc(bsOfAd(x.payment_date||'')||'Date TBC')} · ${esc(x.notes||'Transaction')}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-payment\" data-id=\"${x.id}\">Edit</button><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-payment\" data-id=\"${x.id}\">Delete</button></div></div>`).join('')||empty('No transactions')}</section>`}
+"""
+          if old_project_money not in s: raise SystemExit('projectMoney target missing')
+          s=s.replace(old_project_money,new_project_money,1)
+
+          old_fin="""function financePage(){const incoming=state.payments.filter(x=>x.direction==='in').reduce((a,x)=>a+Number(x.amount||0),0);const outgoing=state.payments.filter(x=>x.direction==='out').reduce((a,x)=>a+Number(x.amount||0),0)+state.expenses.reduce((a,x)=>a+Number(x.amount||0),0);return pageHead('FINANCE','Finance Manager','Customer receipts, vendor payments and business expenses.',`<button type=\"button\" class=\"btn primary\" data-action=\"new-payment\">＋ Customer payment</button><button type=\"button\" class=\"btn\" data-action=\"new-expense\">＋ Expense</button>`)+`<div class=\"metrics\">${metric('Money in',money(incoming),'Customer payments')}${metric('Money out',money(outgoing),'Payments + expenses')}${metric('Net cash',money(incoming-outgoing),'Recorded movement')}</div><div class=\"dashboard-grid\"><section class=\"panel\"><h2>Recent payments</h2>${state.payments.slice(0,12).map(x=>{const p=projectOf(x.project_id);return `<div class=\"mini-row\"><div><b>${money(x.amount)} · ${x.direction==='in'?'Received':'Paid'}</b><small>${esc(p?.event_code||'General')} · ${esc(bsOfAd(x.payment_date||'')||'Date TBC')}</small></div></div>`}).join('')||empty('No payments')}</section><section class=\"panel\"><h2>Recent expenses</h2>${state.expenses.slice(0,12).map(x=>`<div class=\"mini-row\"><div><b>${money(x.amount)} · ${esc(x.category||'Other')}</b><small>${esc(bsOfAd(x.expense_date||'')||'Date TBC')} · ${esc(x.description||'Expense')}</small></div></div>`).join('')||empty('No expenses')}</section></div>`}
+"""
+          new_fin="""function financePage(){const incoming=state.payments.filter(x=>x.direction==='in').reduce((a,x)=>a+Number(x.amount||0),0);const outgoing=state.payments.filter(x=>x.direction==='out').reduce((a,x)=>a+Number(x.amount||0),0)+state.expenses.reduce((a,x)=>a+Number(x.amount||0),0);return pageHead('FINANCE','Finance Manager','Customer receipts, vendor payments and business expenses.',`<button type=\"button\" class=\"btn primary\" data-action=\"new-payment\">＋ Customer payment</button><button type=\"button\" class=\"btn\" data-action=\"new-expense\">＋ Expense</button>`)+`<div class=\"metrics\">${metric('Money in',money(incoming),'Customer payments')}${metric('Money out',money(outgoing),'Payments + expenses')}${metric('Net cash',money(incoming-outgoing),'Recorded movement')}</div><div class=\"dashboard-grid\"><section class=\"panel\"><h2>Recent payments</h2>${state.payments.slice(0,12).map(x=>{const p=projectOf(x.project_id);return `<div class=\"mini-row\"><div><b>${money(x.amount)} · ${x.direction==='in'?'Received':'Paid'}</b><small>${esc(p?.event_code||'General')} · ${esc(bsOfAd(x.payment_date||'')||'Date TBC')} · ${esc(x.notes||'Transaction')}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-payment\" data-id=\"${x.id}\">Edit</button><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-payment\" data-id=\"${x.id}\">Delete</button></div></div>`}).join('')||empty('No payments')}</section><section class=\"panel\"><h2>Recent expenses</h2>${state.expenses.slice(0,12).map(x=>`<div class=\"mini-row\"><div><b>${money(x.amount)} · ${esc(x.category||'Other')}</b><small>${esc(bsOfAd(x.expense_date||'')||'Date TBC')} · ${esc(x.description||'Expense')}</small></div><div class=\"row-actions\"><button type=\"button\" class=\"btn tiny\" data-action=\"edit-expense\" data-id=\"${x.id}\">Edit</button><button type=\"button\" class=\"btn tiny danger\" data-action=\"delete-expense\" data-id=\"${x.id}\">Delete</button></div></div>`).join('')||empty('No expenses')}</section></div>`}
+"""
+          if old_fin not in s: raise SystemExit('finance target missing')
+          s=s.replace(old_fin,new_fin,1)
+
+          old_handlers=""" 'save-payment':async({project})=>safe(async()=>{const bs=pickerValue('payDate');await A.recordPayment({project_id:project||ui.project||null,direction:$('#payDirection').value,amount:Number($('#payAmount').value||0),method:$('#payMethod').value,payment_date:(bs?adOfBs(bs)||null:null),reference:$('#payRef').value,notes:$('#payNotes').value});closeModal();render();toast('Payment saved')}),
+ 'new-expense':({project})=>expenseModal(project||ui.project),
+ 'save-expense':async({project})=>safe(async()=>{const bs=pickerValue('expDate');await A.recordExpense({project_id:project||ui.project||null,category:$('#expCategory').value,amount:Number($('#expAmount').value||0),method:$('#expMethod').value,expense_date:(bs?adOfBs(bs)||null:null),description:$('#expDescription').value,notes:$('#expNotes').value});closeModal();render();toast('Expense saved')}),
+"""
+          new_handlers=""" 'edit-payment':({id})=>{const x=state.payments.find(v=>v.id===id);if(x)paymentModal(x.project_id,x)},
+ 'delete-payment':async({id})=>{if(!confirm('Delete this payment?'))return;await safe(async()=>{await A.deletePayment(id);render();toast('Payment deleted')})},
+ 'save-payment':async({id,project})=>safe(async()=>{const bs=pickerValue('payDate');const row={direction:$('#payDirection').value,amount:Number($('#payAmount').value||0),method:$('#payMethod').value,payment_date:(bs?adOfBs(bs)||null:null),reference:$('#payRef').value,notes:$('#payNotes').value,party_type:$('#payDirection').value==='in'?'customer':'other'};if(id)await A.updatePayment(id,row);else await A.recordPayment({project_id:project||ui.project||null,...row});closeModal();render();toast(id?'Payment updated':'Payment saved')}),
+ 'new-expense':({project})=>expenseModal(project||ui.project),
+ 'edit-expense':({id})=>{const x=state.expenses.find(v=>v.id===id);if(x)expenseModal(x.project_id,x)},
+ 'delete-expense':async({id})=>{if(!confirm('Delete this expense?'))return;await safe(async()=>{await A.remove('project_expenses',id);render();toast('Expense deleted')})},
+ 'save-expense':async({id,project})=>safe(async()=>{const bs=pickerValue('expDate');const row={project_id:project||ui.project||null,category:$('#expCategory').value,amount:Number($('#expAmount').value||0),method:$('#expMethod').value,expense_date:(bs?adOfBs(bs)||null:null),description:$('#expDescription').value,notes:$('#expNotes').value};if(id)await A.update('project_expenses',id,row);else await A.recordExpense(row);closeModal();render();toast(id?'Expense updated':'Expense saved')}),
+"""
+          if old_handlers not in s: raise SystemExit('handlers target missing')
+          s=s.replace(old_handlers,new_handlers,1)
+
+          p.write_text(s)
+          PY
+          node --check app.js
+
+          rm -f .github/workflows/fix-transactions.yml
+          git add app.js .github/workflows/fix-transactions.yml
+          git commit -m "[tx-fix] Fix customer advances and transaction controls"
+          git push origin HEAD:main
