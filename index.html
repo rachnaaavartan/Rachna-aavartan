@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.9">
-<link rel="stylesheet" href="styles.css?v=20260905.9">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.10">
+<link rel="stylesheet" href="styles.css?v=20260905.10">
 </head>
 <body>
 <div class="app">
@@ -72,9 +72,28 @@
   window.DateConverter = RachnaDateConverter;
 })();
 </script>
-<script src="app.js?v=20260905.9"></script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.9').catch(()=>{});});
+// The production UI boot currently registers its DOMContentLoaded handler before it can call
+// RachnaAPI.init(). Wrap that handler so Supabase restores the persisted session first.
+(() => {
+  const nativeAdd = document.addEventListener.bind(document);
+  document.addEventListener = (type, listener, options) => {
+    if (type === 'DOMContentLoaded' && typeof listener === 'function') {
+      const gated = async (event) => {
+        try {
+          if (window.RachnaAPI?.init) await window.RachnaAPI.init();
+        } catch (_) {}
+        return listener(event);
+      };
+      return nativeAdd(type, gated, options);
+    }
+    return nativeAdd(type, listener, options);
+  };
+})();
+</script>
+<script src="app.js?v=20260905.10"></script>
+<script>
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.10').catch(()=>{});});
 </script>
 </body>
 </html>
