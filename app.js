@@ -442,8 +442,9 @@
 }
 'use strict';
 const A=window.RachnaAPI;
-const NP=window.NepaliDate;
-if(!A||!NP){document.addEventListener('DOMContentLoaded',()=>{const p=document.getElementById('page');if(p)p.innerHTML='<div class="empty"><b>Rachna OS could not start.</b><span>Required runtime dependency is unavailable. Refresh the page.</span></div>';});return;}
+const DATE=window.NepaliFunctions;
+const DATEPICKER=typeof HTMLInputElement.prototype.nepaliDatePicker==='function'?HTMLInputElement.prototype.nepaliDatePicker:(typeof HTMLInputElement.prototype.NepaliDatePicker==='function'?HTMLInputElement.prototype.NepaliDatePicker:null);
+if(!A||!DATE||!DATEPICKER){document.addEventListener('DOMContentLoaded',()=>{const p=document.getElementById('page');if(p)p.innerHTML='<div class="empty"><b>Rachna OS could not start.</b><span>Required runtime dependency is unavailable. Refresh the page.</span></div>';});return;}
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 const esc=A.esc,money=A.money;
 const MONTHS=['Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'];
@@ -479,18 +480,15 @@ const toast=(msg,error=false)=>{const n=$('#toast');if(!n)return;n.textContent=m
 const safe=async(fn)=>{try{return await fn()}catch(e){toast(e?.message||'Action failed',true);return null}};
 const todayAD=()=>{const f=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};f.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`};
 const fmt2=n=>String(n).padStart(2,'0');
-const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';
-const parts=v=>{const m=String(v||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);return m?{year:+m[1],month:+m[2],date:+m[3]}:null};
-const adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(bs);const b=d.getBS();if(!b||+b.year!==p.year||+b.month+1!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');const a=d.getAD();return `${a.year}-${fmt2(a.month)}-${fmt2(a.date)}`}catch(_){return''}};
-const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);const b=d.getBS();return b?`${b.year}-${fmt2(+b.month+1)}-${fmt2(b.date)}`:''}catch(_){return''}};
+const asciiDigits=v=>String(v||'').replace(/[०-९]/g,ch=>String('१२३४५६७८९'.indexOf(ch)+1)).replace(/\u0966/g,'0');
+const normalizeDate=v=>{const m=asciiDigits(v).match(/^(\d{4})[-/ ](\d{1,2})[-/ ](\d{1,2})$/);return m?`${m[1]}-${fmt2(m[2])}-${fmt2(m[3])}`:''};
+const adOfBs=bs=>{try{const s=normalizeDate(bs);if(!s)throw new Error('Invalid BS date');const v=DATE.BS2AD(s,'YYYY-MM-DD','YYYY-MM-DD');return normalizeDate(v)}catch(_){return''}};
+const bsOfAd=ad=>{try{const s=String(ad||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return'';return normalizeDate(DATE.AD2BS(s,'YYYY-MM-DD','YYYY-MM-DD'))}catch(_){return''}};
 const todayBS=()=>bsOfAd(todayAD());
-const daysInBsMonth=(y,m)=>{try{const x=new NP(y,m-1,1);x.setDate(32);return x.getMonth()===m-1?x.getDate():32-x.getDate()}catch(_){return 0}};
-const validDays=(y,m)=>{const count=daysInBsMonth(y,m);return Array.from({length:count},(_,i)=>i+1)};
-// Numeric constructor reference kept for compatibility checks: new NP(y,m-1,d)
-const picker=(id,value='')=>{const p=parts(value)||parts(todayBS())||{year:2083,month:5,date:1};const years=[];for(let y=1978;y<=2099;y++)years.push(y);const days=validDays(p.year,p.month);return `<div class="bs-picker" data-picker="${esc(id)}"><select data-bs-year aria-label="BS year"><option value="">Year</option>${years.map(y=>`<option value="${y}" ${y===p.year?'selected':''}>${y}</option>`).join('')}</select><select data-bs-month aria-label="BS month"><option value="">Month</option>${MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===p.month?'selected':''}>${m}</option>`).join('')}</select><select data-bs-day aria-label="BS day"><option value="">Day</option>${days.map(d=>`<option value="${d}" ${d===p.date?'selected':''}>${d}</option>`).join('')}</select><input type="hidden" data-bs-value id="${esc(id)}" value="${esc(fmtBs(p))}"><small>BS · Bikram Sambat</small></div>`};
-const pickerValue=id=>$(`[data-picker="${CSS.escape(id)}"] [data-bs-value]`)?.value||'';
-const bindPickers=root=>{$$('.bs-picker',root).forEach(box=>{const y=$('[data-bs-year]',box),m=$('[data-bs-month]',box),d=$('[data-bs-day]',box),hidden=$('[data-bs-value]',box);const syncYM=()=>{const yy=+y.value,mm=+m.value;if(!yy||!mm){d.innerHTML='<option value="">Day</option>';hidden.value='';return}const days=validDays(yy,mm);const current=+d.value;const keep=days.includes(current)?current:0;d.innerHTML='<option value="">Day</option>'+days.map(v=>`<option value="${v}"${v===keep?' selected':''}>${v}</option>`).join('');d.value=keep?String(keep):'';hidden.value=keep?`${yy}-${String(mm).padStart(2,'0')}-${String(keep).padStart(2,'0')}`:''};[y,m].forEach(x=>x.addEventListener('change',syncYM));d.addEventListener('change',()=>{const yy=+y.value,mm=+m.value,dd=+d.value;if(yy&&mm&&dd&&validDays(yy,mm).includes(dd))hidden.value=`${yy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;else hidden.value=''});syncYM()});};
-const modal=(title,body,actions='')=>{const b=$('#backdrop'),m=$('#modal');m.innerHTML=`<div class="modal-head"><div><div class="eyebrow">RACHNA OS</div><h2>${esc(title)}</h2></div><button class="close-btn" type="button" data-action="close">×</button></div><div class="modal-body">${body}</div><div class="modal-foot"><button class="btn" type="button" data-action="close">Cancel</button>${actions}</div>`;b.classList.add('show');bindPickers(m);m.querySelectorAll('[data-action="close"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};
+const picker=(id,value='')=>`<input class="bs-date-input" data-bs-date id="${esc(id)}" type="text" value="${esc(normalizeDate(value))}" placeholder="Select BS date" autocomplete="off" readonly>`;
+const pickerValue=id=>normalizeDate($('#'+CSS.escape(id))?.value||'');
+const bindDatePickers=root=>{$$('.bs-date-input',root).forEach(input=>{if(input.dataset.bsBound)return;input.dataset.bsBound='1';DATEPICKER.call(input,{dateFormat:'%y-%m-%d',closeOnDateSelect:true});input.addEventListener('dateSelect',()=>{input.value=normalizeDate(input.value)})})};
+const modal=(title,body,actions='')=>{const b=$('#backdrop'),m=$('#modal');m.innerHTML=`<div class="modal-head"><div><div class="eyebrow">RACHNA OS</div><h2>${esc(title)}</h2></div><button class="close-btn" type="button" data-action="close">×</button></div><div class="modal-body">${body}</div><div class="modal-foot"><button class="btn" type="button" data-action="close">Cancel</button>${actions}</div>`;b.classList.add('show');bindDatePickers(m);m.querySelectorAll('[data-action="close"]').forEach(x=>x.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeModal()}));};
 const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};
 const field=(label,id,type='text',value='',extra='')=>`<label class="field"><span>${esc(label)}</span><input id="${esc(id)}" type="${type}" value="${esc(value??'')}" ${extra}></label>`;
 const textarea=(label,id,value='')=>`<label class="field full"><span>${esc(label)}</span><textarea id="${esc(id)}">${esc(value??'')}</textarea></label>`;
