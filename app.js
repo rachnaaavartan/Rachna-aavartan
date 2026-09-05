@@ -479,12 +479,12 @@ const toast=(msg,error=false)=>{const n=$('#toast');if(!n)return;n.textContent=m
 const safe=async(fn)=>{try{return await fn()}catch(e){toast(e?.message||'Action failed',true);return null}};
 const todayAD=()=>{const f=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};f.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`};
 const fmt2=n=>String(n).padStart(2,'0');
-const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';
+const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';
 const parts=v=>{const m=String(v||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);return m?{year:+m[1],month:+m[2],date:+m[3]}:null};
-const adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(bs);const b=d.getBS();if(!b||+b.year!==p.year||+b.month!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');const a=d.getAD();return `${a.year}-${fmt2(a.month)}-${fmt2(a.date)}`}catch(_){return''}};
+const adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(bs);const b=d.getBS();if(!b||+b.year!==p.year||+b.month+1!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');const a=d.getAD();return `${a.year}-${fmt2(a.month)}-${fmt2(a.date)}`}catch(_){return''}};
 const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);const b=d.getBS();return b?`${b.year}-${fmt2(b.month)}-${fmt2(b.date)}`:''}catch(_){return''}};
 const todayBS=()=>bsOfAd(todayAD());
-const daysInBsMonth=(y,m)=>{let last=0;for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)last=d;else break}catch(_){break}}return last};
+const daysInBsMonth=(y,m)=>{let count=0;for(let d=1;d<=32;d++){try{const x=new NP(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const b=x.getBS();if(+b.year===y&&+b.month+1===m&&+b.date===d)count=d;else break}catch(_){break}}return count};
 const validDays=(y,m)=>{const count=daysInBsMonth(y,m);return Array.from({length:count},(_,i)=>i+1)};
 // Numeric constructor reference kept for compatibility checks: new NP(y,m-1,d)
 const picker=(id,value='')=>{const p=parts(value)||parts(todayBS())||{year:2083,month:5,date:1};const years=[];for(let y=1978;y<=2099;y++)years.push(y);const days=validDays(p.year,p.month);return `<div class="bs-picker" data-picker="${esc(id)}"><select data-bs-year aria-label="BS year"><option value="">Year</option>${years.map(y=>`<option value="${y}" ${y===p.year?'selected':''}>${y}</option>`).join('')}</select><select data-bs-month aria-label="BS month"><option value="">Month</option>${MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===p.month?'selected':''}>${m}</option>`).join('')}</select><select data-bs-day aria-label="BS day"><option value="">Day</option>${days.map(d=>`<option value="${d}" ${d===p.date?'selected':''}>${d}</option>`).join('')}</select><input type="hidden" data-bs-value id="${esc(id)}" value="${esc(fmtBs(p))}"><small>BS · Bikram Sambat</small></div>`};
@@ -621,5 +621,5 @@ function bindGlobal(){document.addEventListener('keydown',e=>{if(e.key==='Escape
 async function boot(){if(!state.user){renderShell();$('#page').innerHTML=pageHead('RACHNA + AAVARTAN','Welcome to Rachna OS','Sign in to manage enquiries, events, finance and production.',`<button type="button" class="btn primary" data-action="sign-in-panel">Sign in</button>`)+empty('Sign in required','Use Account in the top bar to continue.');modal('Sign in to Rachna OS',field('Email','authEmail','email','','autocomplete="email"')+field('Password','authPassword','password','','autocomplete="current-password"'),'<button type="button" class="btn primary" data-action="sign-in">Sign in</button><button type="button" class="btn" data-action="sign-up">Create account</button>');return}render();}
 HANDLERS['sign-in-panel']=()=>authModal();
 window.RachnaBS={todayBs:todayBS,bsToAd:adOfBs,adToBs:bsOfAd};
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{bindGlobal();boot()},{once:true});else{bindGlobal();boot()}
+const start=async()=>{bindGlobal();try{await A.init()}catch(e){A.state.error=e}await boot()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
