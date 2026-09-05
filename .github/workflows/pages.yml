@@ -33,38 +33,43 @@ jobs:
           from pathlib import Path
           import re
 
-          app = Path('.app.original.js').read_text()
-          marker = "\n'use strict';\n{\n  'use strict';\n\n  const SUPABASE_URL ="
-          ui_marker = "\n}\n'use strict';\nconst A=window.RachnaAPI;"
-          first = app.find(marker)
-          second = app.find(marker, first + len(marker))
-          ui = app.find(ui_marker, second)
-          if first < 0 or second < 0 or ui < 0:
-              raise SystemExit('Runtime boundaries not found')
-          app = app[:second] + app[ui:]
+          app=Path('.app.original.js').read_text()
+          marker="\n'use strict';\n{\n  'use strict';\n\n  const SUPABASE_URL ="
+          ui_marker="\n}\n'use strict';\nconst A=window.RachnaAPI;"
+          first=app.find(marker)
+          second=app.find(marker, first+len(marker))
+          ui=app.find(ui_marker, second)
+          if first<0 or second<0 or ui<0: raise SystemExit('Runtime boundaries not found')
+          app=app[:second]+app[ui:]
 
-          app = app.replace("const A=window.RachnaAPI;\nconst DC=window.DateConverter;", "const A=window.RachnaAPI;\nconst NP=window.NepaliDate;", 1)
-          app = app.replace("if(!A||!DC)", "if(!A||!NP)", 1)
+          app=app.replace("const A=window.RachnaAPI;\nconst DC=window.DateConverter;","const A=window.RachnaAPI;\nconst NP=window.NepaliDate;",1)
+          app=app.replace("if(!A||!DC)","if(!A||!NP)",1)
 
-          date_rx = re.compile(r"const todayAD=.*?(?=const picker=)", re.S)
-          new_date = '''const todayAD=()=>{const f=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};f.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`};\nconst fmt2=n=>String(n).padStart(2,'0');\nconst fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';\nconst parts=v=>{const m=String(v||'').match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);return m?{year:+m[1],month:+m[2],date:+m[3]}:null};\nconst adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(p.year,p.month-1,p.date);if(d.getYear()!==p.year||d.getMonth()!==p.month-1||d.getDate()!==p.date)throw new Error('Invalid BS date');const ad=d.getAD();return `${ad.year}-${fmt2(ad.month)}-${fmt2(ad.date)}`}catch(_){return''}};\nconst bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);return fmtBs(d.getBS())}catch(_){return''}};\nconst todayBS=()=>bsOfAd(todayAD());\nconst validDays=(y,m)=>{const out=[];for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)out.push(d)}catch(_){}}return out};\n'''
-          app, count = date_rx.subn(new_date, app, count=1)
-          if count != 1:
-              raise SystemExit('Date helper block not found')
+          date_rx=re.compile(r"const todayAD=.*?(?=const picker=)",re.S)
+          new_date="""const todayAD=()=>{const f=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kathmandu',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};f.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return `${o.year}-${o.month}-${o.day}`};
+          const fmt2=n=>String(n).padStart(2,'0');
+          const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';
+          const parts=v=>{const m=String(v||'').match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/);return m?{year:+m[1],month:+m[2],date:+m[3]}:null};
+          const adOfBs=bs=>{try{const p=parts(bs);if(!p)throw new Error('Invalid BS date');const d=new NP(p.year,p.month-1,p.date);if(d.getYear()!==p.year||d.getMonth()!==p.month-1||d.getDate()!==p.date)throw new Error('Invalid BS date');const ad=d.getAD();return `${ad.year}-${fmt2(ad.month)}-${fmt2(ad.date)}`}catch(_){return''}};
+          const bsOfAd=ad=>{try{const p=parts(String(ad||'').slice(0,10));if(!p)throw new Error('Invalid AD date');const js=new Date(Date.UTC(p.year,p.month-1,p.date));const d=NP.fromAD?NP.fromAD(js):new NP(js);return fmtBs(d.getBS())}catch(_){return''}};
+          const todayBS=()=>bsOfAd(todayAD());
+          const validDays=(y,m)=>{const out=[];for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)out.push(d)}catch(_){}}return out};
+          """
+          app,count=date_rx.subn(lambda _ : new_date, app, count=1)
+          if count!=1: raise SystemExit('Date helper block not found')
 
-          bind_rx = re.compile(r"const bindPickers=.*?(?=const modal=)", re.S)
-          new_bind = '''const bindPickers=root=>{$$('.bs-picker',root).forEach(box=>{const y=$('[data-bs-year]',box),m=$('[data-bs-month]',box),d=$('[data-bs-day]',box),hidden=$('[data-bs-value]',box);const syncYM=()=>{const yy=+y.value,mm=+m.value;if(!yy||!mm){d.innerHTML='<option value="">Day</option>';hidden.value='';return}const days=validDays(yy,mm);const current=+d.value;const keep=days.includes(current)?current:0;d.innerHTML='<option value="">Day</option>'+days.map(v=>`<option value="${v}"${v===keep?' selected':''}>${v}</option>`).join('');d.value=keep?String(keep):'';hidden.value=keep?`${yy}-${String(mm).padStart(2,'0')}-${String(keep).padStart(2,'0')}`:''};[y,m].forEach(x=>x.addEventListener('change',syncYM));d.addEventListener('change',()=>{const yy=+y.value,mm=+m.value,dd=+d.value;if(yy&&mm&&dd&&validDays(yy,mm).includes(dd))hidden.value=`${yy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;else hidden.value=''});syncYM()})};\n'''
-          app, count = bind_rx.subn(new_bind, app, count=1)
-          if count != 1:
-              raise SystemExit('Picker binder not found')
+          bind_rx=re.compile(r"const bindPickers=.*?(?=const modal=)",re.S)
+          new_bind="""const bindPickers=root=>{$$('.bs-picker',root).forEach(box=>{const y=$('[data-bs-year]',box),m=$('[data-bs-month]',box),d=$('[data-bs-day]',box),hidden=$('[data-bs-value]',box);const syncYM=()=>{const yy=+y.value,mm=+m.value;if(!yy||!mm){d.innerHTML='<option value=\"\">Day</option>';hidden.value='';return}const days=validDays(yy,mm);const current=+d.value;const keep=days.includes(current)?current:0;d.innerHTML='<option value=\"\">Day</option>'+days.map(v=>`<option value=\"${v}\"${v===keep?' selected':''}>${v}</option>`).join('');d.value=keep?String(keep):'';hidden.value=keep?`${yy}-${String(mm).padStart(2,'0')}-${String(keep).padStart(2,'0')}`:''};[y,m].forEach(x=>x.addEventListener('change',syncYM));d.addEventListener('change',()=>{const yy=+y.value,mm=+m.value,dd=+d.value;if(yy&&mm&&dd&&validDays(yy,mm).includes(dd))hidden.value=`${yy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;else hidden.value=''});syncYM()})};
+          """
+          app,count=bind_rx.subn(lambda _ : new_bind, app, count=1)
+          if count!=1: raise SystemExit('Picker binder not found')
 
-          app = app.replace("const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};if(b)b.classList.remove('show');};", "const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};", 1)
+          app=app.replace("const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};if(b)b.classList.remove('show');};","const closeModal=()=>{const b=$('#backdrop');if(b)b.classList.remove('show');};",1)
           Path('app.js').write_text(app)
           Path('.app.original.js').unlink()
 
-          Path('index.html').write_text('''<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<meta name="theme-color" content="#25232a">\n<meta name="description" content="Rachna + Aavartan Event Business Suite">\n<title>Rachna OS — Business Suite</title>\n<link rel="manifest" href="manifest.webmanifest?v=20260905.18">\n<link rel="stylesheet" href="styles.css?v=20260905.18">\n</head>\n<body>\n<div class="app">\n<aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><div class="brand-title">RACHNA</div><div class="brand-sub">CELEBRATIONS, COMPOSED</div></div></div><div class="workspace"><b>Rachna + Aavartan</b><span>Event Business Suite · Nepal</span></div><nav class="nav" id="nav"></nav><div class="user"><div class="avatar">R</div><div><b id="userName">Offline</b><small id="userRole">Sign in</small></div></div></aside>\n<main class="main"><header class="topbar"><div class="crumb" id="crumb">Home</div><button type="button" class="top-action" data-action="date-check">◫ Date Check</button><button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button><button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button><div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div></header><section class="page" id="page"></section></main></div>\n<div class="toast" id="toast"></div><div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div>\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js"></script>\n<script src="app.js?v=20260905.18"></script>\n<script>window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.18').catch(()=>{});});</script>\n</body></html>\n''')
-
-          Path('sw.js').write_text('''const CACHE='rachna-os-v20260905-18';\nconst CORE=['./','./index.html?v=20260905.18','./styles.css?v=20260905.18','./app.js?v=20260905.18','./manifest.webmanifest?v=20260905.18'];\nself.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));\nself.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));\nself.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=new URL(e.request.url);if(u.origin!==self.location.origin)return;e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request).then(r=>{const x=r.clone();caches.open(CACHE).then(k=>k.put(e.request,x)).catch(()=>{});return r})).catch(()=>caches.match('./index.html?v=20260905.18')))});\n''')
+          Path('index.html').write_text('''<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<meta name="theme-color" content="#25232a">\n<meta name="description" content="Rachna + Aavartan Event Business Suite">\n<title>Rachna OS — Business Suite</title>\n<link rel="manifest" href="manifest.webmanifest?v=20260905.19">\n<link rel="stylesheet" href="styles.css?v=20260905.19">\n</head>\n<body><div class="app"><aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><div class="brand-title">RACHNA</div><div class="brand-sub">CELEBRATIONS, COMPOSED</div></div></div><div class="workspace"><b>Rachna + Aavartan</b><span>Event Business Suite · Nepal</span></div><nav class="nav" id="nav"></nav><div class="user"><div class="avatar">R</div><div><b id="userName">Offline</b><small id="userRole">Sign in</small></div></div></aside><main class="main"><header class="topbar"><div class="crumb" id="crumb">Home</div><button type="button" class="top-action" data-action="date-check">◫ Date Check</button><button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button><button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button><div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div></header><section class="page" id="page"></section></main></div><div class="toast" id="toast"></div><div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js"></script><script src="app.js?v=20260905.19"></script><script>window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.19').catch(()=>{});});</script></body></html>\n''')
+          Path('sw.js').write_text('''const CACHE='rachna-os-v20260905-19';\nconst CORE=['./','./index.html?v=20260905.19','./styles.css?v=20260905.19','./app.js?v=20260905.19','./manifest.webmanifest?v=20260905.19'];\nself.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));\nself.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));\nself.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=new URL(e.request.url);if(u.origin!==self.location.origin)return;e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request).then(r=>{const x=r.clone();caches.open(CACHE).then(k=>k.put(e.request,x)).catch(()=>{});return r})).catch(()=>caches.match('./index.html?v=20260905.19')))});\n''')
           PY
 
       - name: Validate clean production runtime
@@ -91,20 +96,15 @@ jobs:
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
           const html=fs.readFileSync('index.html','utf8');
-          const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);
-          const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);
-          if(!m||!r)throw new Error('Handler or route registry missing');
-          const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
-          const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
-          if(app.includes("HANDLERS['sign-in-panel']"))handlers.add('sign-in-panel');
-          const missing=[...new Set(actions)].filter(x=>!handlers.has(x));
-          if(missing.length)throw new Error('Unwired actions: '+missing.join(', '));
-          const routes=[...app.matchAll(/data-route=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
-          const routeKeys=new Set([...r[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
-          const bad=[...new Set(routes)].filter(x=>!routeKeys.has(x));
-          if(bad.length)throw new Error('Unwired routes: '+bad.join(', '));
-          console.log(`Verified ${new Set(actions).size} actions and ${new Set(routes).size} routes; one backend runtime; native BS picker.`);
+          if((app.match(/const SUPABASE_URL =/g)||[]).length!==1)throw new Error('Duplicate backend runtime');
+          if((app.match(/const state = \{/g)||[]).length!==1)throw new Error('Duplicate state runtime');
+          if(html.includes('DateConverter')||html.includes('nativeAdd'))throw new Error('Extra calendar layer remains');
+          const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);if(!m||!r)throw new Error('Handler or route registry missing');
+          const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));if(app.includes("HANDLERS['sign-in-panel']"))handlers.add('sign-in-panel');const missing=[...new Set(actions)].filter(x=>!handlers.has(x));if(missing.length)throw new Error('Unwired actions: '+missing.join(', '));
+          const routes=[...app.matchAll(/data-route=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));const routeKeys=new Set([...r[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));const bad=[...new Set(routes)].filter(x=>!routeKeys.has(x));if(bad.length)throw new Error('Unwired routes: '+bad.join(', '));
+          console.log(`Clean runtime verified: ${new Set(actions).size} actions, ${new Set(routes).size} routes, 1 backend runtime, direct BS calendar.`);
           NODE
+          curl -fsSL -o /dev/null https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
