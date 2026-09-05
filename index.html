@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.12">
-<link rel="stylesheet" href="styles.css?v=20260905.12">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.13">
+<link rel="stylesheet" href="styles.css?v=20260905.13">
 </head>
 <body>
 <div class="app">
@@ -36,15 +36,12 @@
 (() => {
   const NP = window.NepaliDate;
   if (!NP) return;
-
   class RachnaDateConverter {
     constructor(value) { this.value = value; }
     toAd() {
       const match = String(this.value ?? '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (!match) throw new Error('Invalid BS date');
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const date = Number(match[3]);
+      const year = Number(match[1]), month = Number(match[2]), date = Number(match[3]);
       if (month < 1 || month > 12 || date < 1 || date > 32) throw new Error('Invalid BS date');
       const d = new NP(`${year}-${String(month).padStart(2,'0')}-${String(date).padStart(2,'0')}`);
       const bs = d.getBS();
@@ -55,9 +52,7 @@
     toBs() {
       const match = String(this.value ?? '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (!match) throw new Error('Invalid AD date');
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const date = Number(match[3]);
+      const year = Number(match[1]), month = Number(match[2]), date = Number(match[3]);
       if (month < 1 || month > 12 || date < 1 || date > 31) throw new Error('Invalid AD date');
       const d = NP.fromAD ? NP.fromAD(new Date(Date.UTC(year, month - 1, date))) : new NP(new Date(Date.UTC(year, month - 1, date)));
       const bs = d.getBS();
@@ -82,57 +77,53 @@
   };
 })();
 </script>
-<script src="app.js?v=20260905.12"></script>
+<script src="app.js?v=20260905.13"></script>
 <script>
 (() => {
   const NP = window.NepaliDate;
   if (!NP) return;
-
-  const fillDays = (box) => {
-    const year = box.querySelector('[data-bs-year]');
-    const month = box.querySelector('[data-bs-month]');
-    const day = box.querySelector('[data-bs-day]');
-    const hidden = box.querySelector('[data-bs-value]');
-    if (!year || !month || !day || !hidden) return;
-    const y = Number(year.value);
-    const m = Number(month.value);
-    if (!y || !m) return;
-
-    const current = Number(day.value) || 0;
-    const valid = [];
+  const validDays = (year, month) => {
+    const out = [];
     for (let d = 1; d <= 32; d++) {
       try {
-        const np = new NP(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+        const np = new NP(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
         const bs = np.getBS();
-        if (bs.year === y && bs.month === m && bs.date === d) valid.push(d);
+        if (bs.year === year && bs.month === month && bs.date === d) out.push(d);
       } catch (_) {}
     }
-
-    const expected = '<option value="">Day</option>' + valid.map(d => `<option value="${d}"${d === current ? ' selected' : ''}>${d}</option>`).join('');
-    if (day.innerHTML !== expected) day.innerHTML = expected;
-
-    const selected = Number(day.value);
-    hidden.value = selected && valid.includes(selected)
-      ? `${y}-${String(m).padStart(2,'0')}-${String(selected).padStart(2,'0')}`
-      : '';
+    return out;
   };
-
-  const repair = (root = document) => root.querySelectorAll('.bs-picker').forEach(box => fillDays(box));
+  const fillDays = (box, preferred = null) => {
+    const y = box.querySelector('[data-bs-year]');
+    const m = box.querySelector('[data-bs-month]');
+    const d = box.querySelector('[data-bs-day]');
+    const hidden = box.querySelector('[data-bs-value]');
+    if (!y || !m || !d || !hidden) return;
+    const year = Number(y.value), month = Number(m.value);
+    if (!year || !month) return;
+    const days = validDays(year, month);
+    const keep = Number(preferred) || Number(d.value) || 0;
+    const html = '<option value="">Day</option>' + days.map(n => `<option value="${n}"${n === keep ? ' selected' : ''}>${n}</option>`).join('');
+    if (d.innerHTML !== html) d.innerHTML = html;
+    const selected = Number(d.value);
+    hidden.value = selected && days.includes(selected) ? `${year}-${String(month).padStart(2,'0')}-${String(selected).padStart(2,'0')}` : '';
+  };
+  const repair = root => root.querySelectorAll('.bs-picker').forEach(box => fillDays(box));
   const bootRepair = () => {
     repair(document);
     document.addEventListener('change', e => {
-      if (e.target.matches('[data-bs-year],[data-bs-month],[data-bs-day]')) {
-        const box = e.target.closest('.bs-picker');
-        if (box) fillDays(box);
-      }
+      if (!e.target.matches('[data-bs-year],[data-bs-month],[data-bs-day]')) return;
+      const box = e.target.closest('.bs-picker');
+      if (!box) return;
+      const preferred = Number(e.target.value) || null;
+      setTimeout(() => fillDays(box, preferred), 0);
     }, true);
     const observer = new MutationObserver(mutations => {
       for (const mutation of mutations) {
-        if (mutation.type !== 'childList') continue;
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== 1) continue;
           if (node.matches?.('.bs-picker')) fillDays(node);
-          node.querySelectorAll?.('.bs-picker').forEach(fillDays);
+          node.querySelectorAll?.('.bs-picker').forEach(box => fillDays(box));
         }
       }
     });
@@ -143,7 +134,7 @@
 })();
 </script>
 <script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.12').catch(()=>{});});
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.13').catch(()=>{});});
 </script>
 </body>
 </html>
