@@ -1,0 +1,61 @@
+name: Finalize Rachna OS fixes
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[final-fix]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+          s=s.replace("const fmtBs=o=>o?`${o.year}-${fmt2(o.month)}-${fmt2(o.date)}`:'';", "const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';", 1)
+          s=s.replace("if(!b||+b.year!==p.year||+b.month!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');", "if(!b||+b.year!==p.year||+b.month+1!==p.month||+b.date!==p.date)throw new Error('Invalid BS date');", 1)
+          s=s.replace("const daysInBsMonth=(y,m)=>{let last=0;for(let d=1;d<=32;d++){try{const x=new NP(y,m-1,d);if(x.getYear()===y&&x.getMonth()===m-1&&x.getDate()===d)last=d;else break}catch(_){break}}return last};", "const daysInBsMonth=(y,m)=>{let count=0;for(let d=1;d<=32;d++){try{const x=new NP(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);const b=x.getBS();if(+b.year===y&&+b.month+1===m&&+b.date===d)count=d;else break}catch(_){break}}return count};", 1)
+          old="if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{bindGlobal();boot()},{once:true});else{bindGlobal();boot()}"
+          new="const start=async()=>{bindGlobal();try{await A.init()}catch(e){A.state.error=e}await boot()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();"
+          if old in s:s=s.replace(old,new,1)
+          p.write_text(s)
+          q=Path('index.html');h=q.read_text();marker="<script>\nwindow.addEventListener('DOMContentLoaded', async () => {";a=h.find(marker)
+          if a>=0:
+              b=h.find("window.addEventListener('load',",a)
+              if b<0: raise SystemExit('service worker block missing')
+              h=h[:a]+"<script>\n"+h[b:]
+              q.write_text(h)
+          for name in ('index.html','sw.js'):
+              q=Path(name);t=q.read_text().replace('20260905.24','20260905.25').replace('rachna-os-v20260905-24','rachna-os-v20260905-25');q.write_text(t)
+          PY
+          node --check app.js
+          node --check sw.js
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('app.js').read_text();h=Path('index.html').read_text()
+          assert "const daysInBsMonth=(y,m)=>{let count=0;" in s
+          assert "const fmtBs=o=>o?`${o.year}-${fmt2(+o.month+1)}-${fmt2(o.date)}`:'';" in s
+          assert "const start=async()=>{bindGlobal();try{await A.init()}" in s
+          assert "window.addEventListener('DOMContentLoaded', async () =>" not in h
+          print('final fix checks passed')
+          PY
+      - name: Commit and remove workflow
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/finalize-fix.yml FINAL_FIX_WORKFLOW.tmp
+          git add app.js index.html sw.js .github/workflows/finalize-fix.yml FINAL_FIX_WORKFLOW.tmp
+          git commit -m "[final-fix] Fix BS picker and session startup"
+          git push origin HEAD:main
