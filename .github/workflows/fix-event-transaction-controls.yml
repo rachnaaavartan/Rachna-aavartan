@@ -1,0 +1,80 @@
+name: Add event transaction edit/delete controls
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[event-transactions]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch canonical runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text()
+
+          old="""  async function recordPayment(x) {\n    const amount = n(x.amount);\n    if (!(amount > 0)) throw new Error('Amount must be greater than zero');\n    return insert('payments', {\n      project_id: x.project_id || null, direction: x.direction, party_type: x.party_type || 'other',\n      party_id: x.party_id || null, amount, payment_date: x.payment_date || today(), method: x.method || null,\n      reference: x.reference || null, notes: x.notes || null\n    });\n  }\n"""
+          new="""  async function recordPayment(x) {\n    const amount = n(x.amount);\n    if (!(amount > 0)) throw new Error('Amount must be greater than zero');\n    return insert('payments', {\n      project_id: x.project_id || null, direction: x.direction, party_type: x.party_type || (x.direction === 'in' ? 'customer' : 'other'),\n      party_id: x.party_id || null, amount, payment_date: x.payment_date || today(), method: x.method || null,\n      reference: x.reference || null, notes: x.notes || null\n    });\n  }\n\n  async function updatePayment(id, row) {\n    if (!id) throw new Error('Payment ID is required');\n    const out = await q(sb.from('payments').update(row).eq('id', id));\n    await refresh();\n    return out;\n  }\n\n  async function deletePayment(id) {\n    if (!id) throw new Error('Payment ID is required');\n    await q(sb.from('payments').delete().eq('id', id));\n    await refresh();\n    return true;\n  }\n\n  async function updateExpense(id, row) {\n    if (!id) throw new Error('Expense ID is required');\n    const out = await q(sb.from('project_expenses').update(row).eq('id', id));\n    await refresh();\n    return out;\n  }\n\n  async function deleteExpense(id) {\n    if (!id) throw new Error('Expense ID is required');\n    await q(sb.from('project_expenses').delete().eq('id', id));\n    await refresh();\n    return true;\n  }\n"""
+          if old not in s: raise SystemExit('recordPayment block missing')
+          s=s.replace(old,new,1)
+
+          old_money="""function projectMoneyTab(p,pay){const balance=Math.max(0,Number(p.quoted_total||0)-Number(p.customer_advance||0));return `<div class=\\"metrics\\">${metric('Quoted',money(p.quoted_total),'Latest financial total')}${metric('Advance',money(p.customer_advance),'Customer received')}${metric('Balance',money(balance),'Remaining')}${metric('Status',STATUS[p.status]||p.status,'Manual Event ID status')}</div><section class=\\"panel\\"><div class=\\"section-head\\"><div><div class=\\"eyebrow\\">BOOKING + CASH</div><h2>Financial controls</h2></div><div class=\\"row-actions\\"><button type=\\"button\\" class=\\"btn primary\\" data-action=\\"new-advance\\" data-project=\\"${p.id}\\">＋ Record advance</button><button type=\\"button\\" class=\\"btn\\" data-action=\\"new-payment\\" data-project=\\"${p.id}\\">＋ Payment</button><button type=\\"button\\" class=\\"btn\\" data-action=\\"new-expense\\" data-project=\\"${p.id}\\">＋ Expense</button></div></div>${select('Event status','projectStatus',PROJECT_STATUS,p.status)}<button type=\\"button\\" class=\\"btn primary\\" data-action=\\"save-project-status\\" data-project=\\"${p.id}\\">Save status</button></section><section class=\\"panel\\"><h2>Event transactions</h2>${pay.map(x=>`<div class=\\"mini-row\\"><div><b>${esc(x.direction==='in'?'Received':'Paid')} · ${money(x.amount)}</b><small>${esc(x.method||'Method TBC')} · ${esc(bsOfAd(x.payment_date||'')||'Date TBC')}</small></div></div>`).join('')||empty('No transactions')}</section>`}"""
+          # Avoid brittle escaped literal by regex replacing the whole function.
+          import re
+          pattern=r"function projectMoneyTab\(p,pay\)\{.*?\n\}"
+          m=re.search(pattern,s,re.S)
+          if not m: raise SystemExit('projectMoneyTab missing')
+          new_fn=r'''function projectMoneyTab(p,pay){
+  const balance=Math.max(0,Number(p.quoted_total||0)-Number(p.customer_advance||0));
+  const expenses=state.expenses.filter(x=>x.project_id===p.id);
+  const tx=[...pay.map(x=>({...x,_kind:'payment'})),...expenses.map(x=>({...x,_kind:'expense'}))].sort((a,b)=>String(b.payment_date||b.expense_date||b.created_at||'').localeCompare(String(a.payment_date||a.expense_date||a.created_at||'')));
+  return `<div class="metrics">${metric('Quoted',money(p.quoted_total),'Latest financial total')}${metric('Advance',money(p.customer_advance),'Customer received')}${metric('Balance',money(balance),'Remaining')}${metric('Status',STATUS[p.status]||p.status,'Manual Event ID status')}</div><section class="panel"><div class="section-head"><div><div class="eyebrow">BOOKING + CASH</div><h2>Financial controls</h2></div><div class="row-actions"><button type="button" class="btn primary" data-action="new-advance" data-project="${p.id}">＋ Record advance</button><button type="button" class="btn" data-action="new-payment" data-project="${p.id}">＋ Payment</button><button type="button" class="btn" data-action="new-expense" data-project="${p.id}">＋ Expense</button></div></div>${select('Event status','projectStatus',PROJECT_STATUS,p.status)}<button type="button" class="btn primary" data-action="save-project-status" data-project="${p.id}">Save status</button></section><section class="panel"><div class="section-head"><div><h2>Event transactions</h2><p>Every transaction is linked to its source record. Delete or edit it here and the source is removed/updated everywhere.</p></div></div>${tx.map(x=>{const isExp=x._kind==='expense',date=isExp?x.expense_date:x.payment_date;const label=isExp?`Expense · ${x.category||'Other'}`:(x.direction==='in'?'Received':'Paid');return `<div class="mini-row"><div><b>${esc(label)} · ${money(x.amount)}</b><small>${esc(x.method||'Method TBC')} · ${esc(isExp?(bsOfAd(date||'')||'Date TBC'):(bsOfAd(date||'')||'Date TBC'))} · ${esc(isExp?(x.description||'Expense'):(x.notes||'Transaction'))}</small></div><div class="row-actions"><button type="button" class="btn tiny" data-action="${isExp?'edit-expense':'edit-payment'}" data-id="${x.id}">Edit</button><button type="button" class="btn tiny danger" data-action="${isExp?'delete-expense':'delete-payment'}" data-id="${x.id}">Delete</button></div></div>`}).join('')||empty('No transactions')}</section>`;
+}'''
+          s=s[:m.start()]+new_fn+s[m.end():]
+
+          # Replace payment modal to support editing.
+          s=s.replace("function paymentModal(projectId){modal('Record payment',", "function paymentModal(projectId,item){modal(item?'Edit payment':'Record payment',",1)
+          s=s.replace("${field('Amount (NPR)','payAmount','number','')}${select('Method','payMethod',METHODS,'Cash')}", "${field('Amount (NPR)','payAmount','number',item?.amount||'')}${select('Method','payMethod',METHODS,item?.method||'Cash')}",1)
+          s=s.replace("${field('Reference','payRef','text','')}${textarea('Notes','payNotes','')}", "${field('Reference','payRef','text',item?.reference||'')}${textarea('Notes','payNotes',item?.notes||'')}",1)
+          s=s.replace("<button type=\\\"button\\\" class=\\\"btn primary\\\" data-action=\\\"save-payment\\\" data-project=\\\"${projectId||''}\\\">Save payment</button>", "<button type=\\\"button\\\" class=\\\"btn primary\\\" data-action=\\\"save-payment\\\" data-id=\\\"${item?.id||''}\\\" data-project=\\\"${projectId||item?.project_id||''}\\\">Save payment</button>",1)
+
+          # Insert handlers before new-payment.
+          anchor=" 'new-payment':({project})=>paymentModal(project||ui.project),"
+          handlers=""" 'edit-payment':({id})=>{const x=state.payments.find(v=>v.id===id);if(x)paymentModal(x.project_id,x)},\n 'delete-payment':async({id})=>{if(!confirm('Delete this payment?'))return;await safe(async()=>{await A.deletePayment(id);render();toast('Payment deleted')})},\n 'edit-expense':({id})=>{const x=state.expenses.find(v=>v.id===id);if(x)expenseModal(x.project_id,x)},\n 'delete-expense':async({id})=>{if(!confirm('Delete this expense?'))return;await safe(async()=>{await A.deleteExpense(id);render();toast('Expense deleted')})},\n"""
+          if anchor not in s: raise SystemExit('payment handler anchor missing')
+          s=s.replace(anchor,handlers+anchor,1)
+          s=s.replace("'save-payment':async({project})=>safe(async()=>{const bs=pickerValue('payDate');await A.recordPayment({project_id:project||ui.project||null,direction:$('#payDirection').value,amount:Number($('#payAmount').value||0),method:$('#payMethod').value,payment_date:(bs?adOfBs(bs)||null:null),reference:$('#payRef').value,notes:$('#payNotes').value});closeModal();render();toast('Payment saved')}),", "'save-payment':async({id,project})=>safe(async()=>{const bs=pickerValue('payDate');const row={direction:$('#payDirection').value,amount:Number($('#payAmount').value||0),method:$('#payMethod').value,payment_date:(bs?adOfBs(bs)||null:null),reference:$('#payRef').value,notes:$('#payNotes').value};if(id)await A.updatePayment(id,row);else await A.recordPayment({...row,project_id:project||ui.project||null});closeModal();render();toast(id?'Payment updated':'Payment saved')}),",1)
+
+          # Replace expense modal for edit mode and save handler.
+          s=s.replace("function expenseModal(projectId){modal('Record expense',", "function expenseModal(projectId,item){modal(item?'Edit expense':'Record expense',",1)
+          s=s.replace("${field('Amount (NPR)','expAmount','number','')}${select('Method','expMethod',METHODS,'Cash')}", "${field('Amount (NPR)','expAmount','number',item?.amount||'')}${select('Method','expMethod',METHODS,item?.method||'Cash')}",1)
+          s=s.replace("${field('Description','expDescription','text','Expense')}${textarea('Notes','expNotes','')}", "${field('Description','expDescription','text',item?.description||'Expense')}${textarea('Notes','expNotes',item?.notes||'')}",1)
+          s=s.replace("data-action=\\\"save-expense\\\" data-project=\\\"${projectId||''}\\\">Save expense", "data-action=\\\"save-expense\\\" data-id=\\\"${item?.id||''}\\\" data-project=\\\"${projectId||item?.project_id||''}\\\">Save expense",1)
+          s=s.replace("'save-expense':async({project})=>safe(async()=>{const bs=pickerValue('expDate');await A.recordExpense({project_id:project||ui.project||null,category:$('#expCategory').value,amount:Number($('#expAmount').value||0),method:$('#expMethod').value,expense_date:(bs?adOfBs(bs)||null:null),description:$('#expDescription').value,notes:$('#expNotes').value});closeModal();render();toast('Expense saved')}),", "'save-expense':async({id,project})=>safe(async()=>{const bs=pickerValue('expDate');const row={category:$('#expCategory').value,amount:Number($('#expAmount').value||0),method:$('#expMethod').value,expense_date:(bs?adOfBs(bs)||null:null),description:$('#expDescription').value,notes:$('#expNotes').value};if(id)await A.updateExpense(id,row);else await A.recordExpense({...row,project_id:project||ui.project||null});closeModal();render();toast(id?'Expense updated':'Expense saved')}),",1)
+
+          # Export API members.
+          s=s.replace("recordPayment, recordExpense, recordAdvance,", "recordPayment, updatePayment, deletePayment, recordExpense, updateExpense, deleteExpense, recordAdvance,",1)
+          p.write_text(s)
+          PY
+          node --check app.js
+          ! grep -Fq 'data-bs-year' app.js
+      - name: Commit patch and remove workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/fix-event-transaction-controls.yml
+          git add app.js .github/workflows/fix-event-transaction-controls.yml
+          git diff --cached --quiet && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m '[event-transactions] Add event transaction controls'
+          git push origin HEAD:main
