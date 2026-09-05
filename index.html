@@ -6,45 +6,66 @@
 <meta name="theme-color" content="#25232a">
 <meta name="description" content="Rachna + Aavartan Event Business Suite">
 <title>Rachna OS — Business Suite</title>
-<link rel="manifest" href="manifest.webmanifest?v=20260905.40">
-<link rel="stylesheet" href="styles.css?v=20260905.40">
+<link rel="manifest" href="manifest.webmanifest?v=20260905.41">
+<link rel="stylesheet" href="styles.css?v=20260905.41">
 </head>
-<body><div class="app"><aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><div class="brand-title">RACHNA</div><div class="brand-sub">CELEBRATIONS, COMPOSED</div></div></div><div class="workspace"><b>Rachna + Aavartan</b><span>Event Business Suite · Nepal</span></div><nav class="nav" id="nav"></nav><div class="user"><div class="avatar">R</div><div><b id="userName">Offline</b><small id="userRole">Sign in</small></div></div></aside><main class="main"><header class="topbar"><div class="crumb" id="crumb">Home</div><button type="button" class="top-action" data-action="date-check">◫ Date Check</button><button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button><button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button><div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div></header><section class="page" id="page"></section></main></div><div class="toast" id="toast"></div><div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><link rel="stylesheet" href="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/css/nepali.datepicker.v5.0.6.min.css"><script src="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/js/nepali.datepicker.v5.0.6.min.js"></script><script src="app.js?v=20260905.40"></script><script>
-/* Recover inquiry records directly from Supabase before the app's click handler runs.
-   This prevents a stale/empty client-side inquiry cache from producing "Inquiry not found". */
-window.addEventListener('click', async (e) => {
-  const btn = e.target.closest?.('button[data-action="convert-inquiry"]');
-  if (!btn || !window.RachnaAPI?.sb || !window.RachnaAPI?.state) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  const id = btn.dataset.id;
-  if (!id) return;
-  const A = window.RachnaAPI;
-  try {
-    let inquiry = A.state.inquiries.find(x => x.id === id);
-    if (!inquiry) {
-      const { data, error } = await A.sb.from('inquiries').select('*').eq('id', id).maybeSingle();
-      if (error) throw error;
-      inquiry = data;
-      if (!inquiry) throw new Error('Inquiry could not be loaded. Please refresh and try again.');
-      A.state.inquiries = [inquiry, ...A.state.inquiries.filter(x => x.id !== id)];
-    }
-    const project = await A.convertInquiry(id);
-    try {
-      localStorage.setItem('ros.route', 'events');
-      localStorage.setItem('ros.project', project.id);
-      localStorage.setItem('ros.tab', 'overview');
-    } catch (_) {}
-    location.reload();
-  } catch (err) {
-    const toast = document.getElementById('toast');
-    if (toast) {
-      toast.textContent = err?.message || 'Could not create event';
-      toast.className = 'toast show error';
-      setTimeout(() => { toast.className = 'toast'; }, 3000);
-    }
-  }
-}, true);
+<body><div class="app"><aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><div class="brand-title">RACHNA</div><div class="brand-sub">CELEBRATIONS, COMPOSED</div></div></div><div class="workspace"><b>Rachna + Aavartan</b><span>Event Business Suite · Nepal</span></div><nav class="nav" id="nav"></nav><div class="user"><div class="avatar">R</div><div><b id="userName">Offline</b><small id="userRole">Sign in</small></div></div></aside><main class="main"><header class="topbar"><div class="crumb" id="crumb">Home</div><button type="button" class="top-action" data-action="date-check">◫ Date Check</button><button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button><button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button><div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div></header><section class="page" id="page"></section></main></div><div class="toast" id="toast"></div><div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><link rel="stylesheet" href="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/css/nepali.datepicker.v5.0.6.min.css"><script src="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/js/nepali.datepicker.v5.0.6.min.js"></script><script src="app.js?v=20260905.41"></script>
+<script>
+/* Quotation UX extension. Date picker is intentionally not touched. */
+(() => {
+  const get = () => window.RachnaAPI;
+  const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
+  const money = (v) => 'NPR ' + Number(v || 0).toLocaleString('en-IN', {maximumFractionDigits:0});
+  const toast = (msg, error=false) => { const n=$('#toast'); if(!n) return; n.textContent=msg; n.className='toast show'+(error?' error':''); setTimeout(()=>n.className='toast',3000); };
+  const close = () => { const b=$('#backdrop'); if(b) b.classList.remove('show'); };
+  const open = (title, body, action, handler) => {
+    const b=$('#backdrop'), m=$('#modal'); if(!b||!m) return;
+    m.innerHTML=`<div class="modal-head"><div><div class="eyebrow">RACHNA OS</div><h2>${esc(title)}</h2></div><button type="button" class="close-btn" id="qClose">×</button></div><div class="modal-body">${body}</div><div class="modal-foot"><button type="button" class="btn" id="qCancel">Cancel</button><button type="button" class="btn primary" id="qSave">${esc(action)}</button></div>`;
+    b.classList.add('show');
+    $('#qClose')?.addEventListener('click',close); $('#qCancel')?.addEventListener('click',close); $('#qSave')?.addEventListener('click',handler);
+  };
+  const currentProject = () => { try { return localStorage.getItem('ros.project'); } catch(_) { return null; } };
+  const showEditQuote = (id) => {
+    const A=get(); const q=A?.state?.quotations?.find(x=>x.id===id); if(!q) return;
+    open('Edit quotation', `<div class="form-grid"><label class="field"><span>Package price (NPR)</span><input id="qPackageFix" type="number" min="1" step="1" value="${esc(q.customer_total||'')}"></label><label class="field"><span>Status</span><select id="qStatusFix"><option value="draft" ${q.status==='draft'?'selected':''}>Draft</option><option value="sent" ${q.status==='sent'?'selected':''}>Sent</option><option value="accepted" ${q.status==='accepted'?'selected':''}>Accepted</option><option value="rejected" ${q.status==='rejected'?'selected':''}>Rejected</option></select></label><label class="field full"><span>Notes</span><textarea id="qNotesFix">${esc(q.notes||'')}</textarea></label></div><div class="notice">Package price is the quotation total. Individual item prices are optional and do not determine the package total.</div>`, 'Save quotation', async()=>{
+      try { const price=Number($('#qPackageFix')?.value||0); if(!(price>0)){toast('Package price is required.',true);return;} await A.updateQuotation(id,{customer_total:price,status:$('#qStatusFix').value,notes:$('#qNotesFix').value},currentProject()); close(); location.reload(); } catch(e){toast(e?.message||'Could not save quotation',true);}
+    });
+  };
+  const showNewQuote = async (projectId) => {
+    const A=get(); if(!A) return; try { const q=await A.createQuotation(projectId); close(); setTimeout(()=>showEditQuote(q.id),50); } catch(e){toast(e?.message||'Could not create quotation',true);}
+  };
+  const showAddItem = (quoteId) => {
+    const A=get(); if(!A) return;
+    open('Add quotation item', `<div class="form-grid"><label class="field full"><span>Description</span><input id="qiDescFix" type="text"></label><label class="field"><span>Quantity</span><input id="qiQtyFix" type="number" min="1" step="1" value="1"></label><label class="field"><span>Customer price (NPR) — optional</span><input id="qiPriceFix" type="number" min="0" step="1"></label><label class="field"><span>Internal cost (NPR)</span><input id="qiCostFix" type="number" min="0" step="1" value="0"></label></div><div class="notice">Leave Customer price blank when the item is included in the package price.</div>`, 'Add item', async()=>{
+      try { const desc=$('#qiDescFix')?.value?.trim(); if(!desc){toast('Item description is required.',true);return;} const price=$('#qiPriceFix')?.value; await A.addQuoteItem(quoteId,{description:desc,quantity:Number($('#qiQtyFix')?.value||1),customer_price:price===''?null:Number(price),internal_cost:Number($('#qiCostFix')?.value||0)}); close(); location.reload(); } catch(e){toast(e?.message||'Could not add item',true);}
+    });
+  };
+  const enhanceQuotation = () => {
+    const A=get(); if(!A) return;
+    const quoteButtons=[...document.querySelectorAll('[data-action="edit-quote"]')];
+    quoteButtons.forEach(btn=>{
+      if(btn.dataset.qEnhanced) return; btn.dataset.qEnhanced='1';
+      const id=btn.dataset.id; const wrap=btn.closest('.list-card'); if(!wrap) return;
+      let del=wrap.querySelector('[data-q-enhanced-delete]');
+      if(!del){ del=document.createElement('button'); del.type='button'; del.className='btn tiny danger'; del.textContent='Delete version'; del.dataset.qEnhancedDelete=id; wrap.querySelector('.row-actions')?.appendChild(del); }
+      const quote=A.state.quotations.find(q=>q.id===id); const items=A.state.quotationItems.filter(i=>i.quotation_id===id);
+      if(items.length){ let box=wrap.nextElementSibling; if(!box?.matches('[data-q-items-box]')){box=document.createElement('div');box.dataset.qItemsBox='1';box.className='quotation-items-box';wrap.after(box);} box.innerHTML=items.map(i=>`<div class="mini-row"><div><b>${esc(i.description)}</b><small>Qty ${esc(i.quantity||1)} · ${i.customer_price==null?'Included in package':money(i.customer_price)}</small></div><button type="button" class="btn tiny danger" data-q-enhanced-item="${i.id}">Delete item</button></div>`).join(''); }
+      const small=wrap.querySelector('small'); if(small && quote) small.textContent=`Draft · Package ${money(quote.customer_total)} · ${items.length} items`;
+    });
+  };
+  document.addEventListener('click', async e=>{
+    const btn=e.target.closest?.('button'); if(!btn) return;
+    const A=get(); if(!A) return;
+    if(btn.dataset.action==='new-quote') { e.preventDefault(); e.stopImmediatePropagation(); await showNewQuote(btn.dataset.project); return; }
+    if(btn.dataset.action==='edit-quote') { e.preventDefault(); e.stopImmediatePropagation(); showEditQuote(btn.dataset.id); return; }
+    if(btn.dataset.action==='add-quote-item') { e.preventDefault(); e.stopImmediatePropagation(); showAddItem(btn.dataset.id); return; }
+    if(btn.dataset.qEnhancedDelete) { e.preventDefault(); e.stopImmediatePropagation(); if(!confirm('Delete this quotation version and all its items?')) return; try { await A.deleteQuotation ? A.deleteQuotation(btn.dataset.qEnhancedDelete) : A.remove('quotations',btn.dataset.qEnhancedDelete); location.reload(); } catch(err){toast(err?.message||'Could not delete quotation',true);} return; }
+    if(btn.dataset.qEnhancedItem) { e.preventDefault(); e.stopImmediatePropagation(); if(!confirm('Delete this quotation item?')) return; try { await A.deleteQuoteItem ? A.deleteQuoteItem(btn.dataset.qEnhancedItem) : A.remove('quotation_items',btn.dataset.qEnhancedItem); location.reload(); } catch(err){toast(err?.message||'Could not delete item',true);} return; }
+  }, true);
+  const observer=new MutationObserver(()=>setTimeout(enhanceQuotation,0)); observer.observe(document.getElementById('page')||document.body,{childList:true,subtree:true});
+  window.addEventListener('load',()=>setTimeout(enhanceQuotation,200));
+})();
 </script><script>
-window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.40').catch(()=>{});});
+window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.41').catch(()=>{});});
 </script></body></html>
