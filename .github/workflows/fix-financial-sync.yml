@@ -1,0 +1,68 @@
+name: Fix financial sync
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[financial-sync]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch canonical runtime for live financial synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('app.js'); s=p.read_text()
+
+          # Make customer advance derive from customer-advance payments, not a stale project field.
+          old = """  async function recordAdvance(projectId, amount, method, reference) {\n    const value = n(amount);\n    if (!(value > 0)) throw new Error('Enter a valid advance');\n    const data = await q(sb.rpc('apply_customer_advance', { p_project_id: projectId, p_amount: value, p_method: method || null, p_reference: reference || null }));\n    await refresh();\n    return { booked: Boolean(data.booked), reserve: n(data.vendor_reserve), received: n(data.received), required: n(data.required) };\n  }\n"""
+          new = """  async function syncCustomerAdvance(projectId) {\n    if (!projectId) return;\n    const rows = await q(sb.from('payments').select('amount').eq('project_id',projectId).eq('direction','in').eq('party_type','customer').eq('notes','Customer advance'));\n    const total=(rows||[]).reduce((a,x)=>a+n(x.amount),0);\n    await q(sb.from('projects').update({customer_advance:total,vendor_reserve:total*0.15}).eq('id',projectId));\n  }\n\n  async function recordAdvance(projectId, amount, method, reference) {\n    const value = n(amount);\n    if (!(value > 0)) throw new Error('Enter a valid advance');\n    if (!projectId) throw new Error('Event is required for a customer advance');\n    const data = await q(sb.from('payments').insert({project_id:projectId,direction:'in',party_type:'customer',amount:value,payment_date:today(),method:method||null,reference:reference||null,notes:'Customer advance'}).select().single());\n    await syncCustomerAdvance(projectId);\n    await recalc(projectId);\n    return { booked:true, reserve:value*0.15, received:value };\n  }\n"""
+          if old not in s: raise SystemExit('recordAdvance anchor missing')
+          s=s.replace(old,new,1)
+
+          # Replace recalc with a canonical refresh that synchronizes advance first.
+          old_recalc = """  async function recalc(projectId) {\n    if (!projectId) return;\n    await q(sb.rpc('refresh_project_financials', { p_project_id: projectId }));\n    await refresh();\n  }\n"""
+          new_recalc = """  async function recalc(projectId) {\n    if (!projectId) return;\n    await syncCustomerAdvance(projectId);\n    await q(sb.rpc('refresh_project_financials', { p_project_id: projectId }));\n    await refresh();\n  }\n"""
+          if old_recalc not in s: raise SystemExit('recalc anchor missing')
+          s=s.replace(old_recalc,new_recalc,1)
+
+          # Ensure payment edits/deletes always recompute the linked project from source transactions.
+          old_remove = """  async function remove(table, id) {\n    if (!id) throw new Error('Record ID is required');\n    await q(sb.from(table).delete().eq('id', id));\n    await refresh();\n    return true;\n  }\n"""
+          new_remove = """  async function remove(table, id) {\n    if (!id) throw new Error('Record ID is required');\n    let current=null;\n    if(table==='payments') current=state.payments.find(x=>x.id===id);\n    await q(sb.from(table).delete().eq('id', id));\n    if(table==='payments' && current?.project_id) await syncCustomerAdvance(current.project_id);\n    await refresh();\n    if(current?.project_id) await q(sb.rpc('refresh_project_financials',{p_project_id:current.project_id}));\n    await refresh();\n    return true;\n  }\n"""
+          if old_remove in s: s=s.replace(old_remove,new_remove,1)
+
+          # Add realtime listeners once after app initialization; every mutation reloads linked state.
+          marker="  async function init() {"
+          realtime = """  let realtimeStarted=false;\n  function startRealtime() {\n    if (realtimeStarted || !state.user) return;\n    realtimeStarted=true;\n    const tables=['payments','project_expenses','quotations','quotation_items','projects','inquiries','vendor_bookings','project_services','project_team','production_costs','event_files','reminders','event_functions'];\n    for (const table of tables) {\n      sb.channel(`ros-${table}`).on('postgres_changes',{event:'*',schema:'public',table},async()=>{\n        try { await refresh(); if(state.projects.length){ const ids=[...new Set(state.projects.map(p=>p.id))]; for(const id of ids){ try{await syncCustomerAdvance(id)}catch(_){}} await refresh(); }\n        } catch(_) {}\n      }).subscribe();\n    }\n  }\n\n"""
+          if 'function startRealtime()' not in s:
+              if marker not in s: raise SystemExit('init marker missing')
+              s=s.replace(marker,realtime+marker,1)
+          s=s.replace("      await refresh();\n    }\n    return state;\n  }\n", "      await refresh();\n      startRealtime();\n    }\n    return state;\n  }\n",1)
+          p.write_text(s)
+          
+          ip=Path('index.html'); h=ip.read_text(); h=re.sub(r'\bv=20260905\.[0-9]+', 'v=20260905.43', h); ip.write_text(h)
+          PY
+          node --check app.js
+          ! grep -Fq 'MutationObserver' app.js
+          grep -Fq 'function syncCustomerAdvance' app.js
+          grep -Fq 'function startRealtime' app.js
+          grep -Fq 'Customer advance' app.js
+      - name: Commit and remove workflow
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          rm -f .github/workflows/fix-financial-sync.yml
+          git add app.js index.html .github/workflows/fix-financial-sync.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "[financial-sync] Keep event finances synchronized from source transactions"
+          git push origin HEAD:main
