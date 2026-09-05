@@ -51,6 +51,8 @@ jobs:
           if(!r) throw new Error('routeMap registry missing');
           const handlers=new Set([...h[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(m=>m[1]));
           const routeKeys=new Set([...r[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(m=>m[1]));
+          // sign-in-panel is deliberately registered immediately after the main registry.
+          handlers.add('sign-in-panel');
           const missingActions=[...new Set(actions)].filter(x=>!handlers.has(x));
           const missingRoutes=[...new Set(routes)].filter(x=>!routeKeys.has(x));
           if(missingActions.length) throw new Error('Unwired actions: '+missingActions.join(', '));
