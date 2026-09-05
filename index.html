@@ -10,5 +10,41 @@
 <link rel="stylesheet" href="styles.css?v=20260905.40">
 </head>
 <body><div class="app"><aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><div class="brand-title">RACHNA</div><div class="brand-sub">CELEBRATIONS, COMPOSED</div></div></div><div class="workspace"><b>Rachna + Aavartan</b><span>Event Business Suite · Nepal</span></div><nav class="nav" id="nav"></nav><div class="user"><div class="avatar">R</div><div><b id="userName">Offline</b><small id="userRole">Sign in</small></div></div></aside><main class="main"><header class="topbar"><div class="crumb" id="crumb">Home</div><button type="button" class="top-action" data-action="date-check">◫ Date Check</button><button type="button" class="top-action primary" data-route="inquiries">✉ Enquiries</button><button type="button" class="top-action" data-action="quick-action">⚡ Quick action</button><div class="top-actions"><div class="pill">NPR · Nepal</div><button type="button" class="icon" id="refresh" data-action="refresh" title="Refresh">↻</button><button type="button" class="icon" id="authBtn" data-action="account" title="Account">R</button></div></header><section class="page" id="page"></section></main></div><div class="toast" id="toast"></div><div class="modal-backdrop" id="backdrop"><div class="modal" id="modal"></div></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><link rel="stylesheet" href="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/css/nepali.datepicker.v5.0.6.min.css"><script src="https://nepalidatepicker.sajanmaharjan.com.np/v5/nepali.datepicker/js/nepali.datepicker.v5.0.6.min.js"></script><script src="app.js?v=20260905.40"></script><script>
+/* Recover inquiry records directly from Supabase before the app's click handler runs.
+   This prevents a stale/empty client-side inquiry cache from producing "Inquiry not found". */
+window.addEventListener('click', async (e) => {
+  const btn = e.target.closest?.('button[data-action="convert-inquiry"]');
+  if (!btn || !window.RachnaAPI?.sb || !window.RachnaAPI?.state) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const id = btn.dataset.id;
+  if (!id) return;
+  const A = window.RachnaAPI;
+  try {
+    let inquiry = A.state.inquiries.find(x => x.id === id);
+    if (!inquiry) {
+      const { data, error } = await A.sb.from('inquiries').select('*').eq('id', id).maybeSingle();
+      if (error) throw error;
+      inquiry = data;
+      if (!inquiry) throw new Error('Inquiry could not be loaded. Please refresh and try again.');
+      A.state.inquiries = [inquiry, ...A.state.inquiries.filter(x => x.id !== id)];
+    }
+    const project = await A.convertInquiry(id);
+    try {
+      localStorage.setItem('ros.route', 'events');
+      localStorage.setItem('ros.project', project.id);
+      localStorage.setItem('ros.tab', 'overview');
+    } catch (_) {}
+    location.reload();
+  } catch (err) {
+    const toast = document.getElementById('toast');
+    if (toast) {
+      toast.textContent = err?.message || 'Could not create event';
+      toast.className = 'toast show error';
+      setTimeout(() => { toast.className = 'toast'; }, 3000);
+    }
+  }
+}, true);
+</script><script>
 window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260905.40').catch(()=>{});});
 </script></body></html>
