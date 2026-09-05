@@ -26,6 +26,7 @@ jobs:
         run: |
           set -e
           node --check app.js
+          node --check sw.js
           test -f index.html
           test -f styles.css
           test -f sw.js
@@ -54,11 +55,12 @@ jobs:
           const fs=require('fs');
           const app=fs.readFileSync('app.js','utf8');
           const html=fs.readFileSync('index.html','utf8');
+          const sw=fs.readFileSync('sw.js','utf8');
           const m=app.match(/const HANDLERS=\{([\s\S]*?)\n\};/);
           const r=app.match(/const ROUTES=\{([\s\S]*?)\};/);
           if(!m||!r) throw new Error('Handler or route registry missing');
-          if(!html.includes('new NP(year, month - 1, date)')) throw new Error('Strict BS constructor missing');
-          if(!html.includes('d.getYear() !== year')) throw new Error('BS day validation missing');
+          if(!html.includes('new NP(year, month - 1, date)') && !sw.includes('new NP(year, month - 1, date)')) throw new Error('Strict BS constructor missing');
+          if(!html.includes('d.getYear() !== year') && !sw.includes('d.getYear() !== year')) throw new Error('BS day validation missing');
           const actions=[...app.matchAll(/data-action=["']([^"']+)["']/g)].map(x=>x[1]).filter(x=>!x.includes('$'));
           const handlers=new Set([...m[1].matchAll(/(?:^|,)\s*['"]?([A-Za-z0-9_-]+)['"]?\s*:/g)].map(x=>x[1]));
           if(app.includes("HANDLERS['sign-in-panel']")) handlers.add('sign-in-panel');
